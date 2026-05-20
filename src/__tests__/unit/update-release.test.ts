@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isElectronUpdaterReleaseAsset,
+  parseGenericUpdateInfo,
   selectRecommendedReleaseAsset,
   type ReleaseAsset,
 } from '../../lib/update-release';
@@ -83,5 +84,25 @@ describe('isElectronUpdaterReleaseAsset', () => {
     assert.equal(isElectronUpdaterReleaseAsset('Sparkle.Setup.0.54.0.exe'), false);
     assert.equal(isElectronUpdaterReleaseAsset('Sparkle-0.54.0-arm64.dmg'), false);
     assert.equal(isElectronUpdaterReleaseAsset('SHA256SUMS.txt'), false);
+  });
+});
+
+describe('parseGenericUpdateInfo', () => {
+  it('parses electron-updater latest.yml fields used by the OSS fallback route', () => {
+    const info = parseGenericUpdateInfo(`
+version: 0.55.0
+files:
+  - url: Sparkle.Setup.0.55.0.exe
+    sha512: abc
+    size: 12345
+path: Sparkle.Setup.0.55.0.exe
+releaseDate: '2026-05-20T10:00:00.000Z'
+`);
+
+    assert.equal(info.version, '0.55.0');
+    assert.equal(info.path, 'Sparkle.Setup.0.55.0.exe');
+    assert.equal(info.releaseDate, '2026-05-20T10:00:00.000Z');
+    assert.equal(info.files?.[0]?.url, 'Sparkle.Setup.0.55.0.exe');
+    assert.equal(info.files?.[0]?.size, 12345);
   });
 });

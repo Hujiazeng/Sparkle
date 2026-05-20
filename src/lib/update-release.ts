@@ -41,6 +41,11 @@ export function parseGenericUpdateInfo(content: string): GenericUpdateInfo {
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
+    const isTopLevel = rawLine === rawLine.trimStart();
+    if (isTopLevel && inFiles && !line.startsWith('-')) {
+      commitFile();
+      inFiles = false;
+    }
 
     if (line === 'files:') {
       inFiles = true;
