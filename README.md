@@ -1,296 +1,229 @@
-<img src="docs/icon-readme.png" width="32" height="32" alt="Sparkle" style="vertical-align: middle; margin-right: 8px;" /> Sparkle
-===
+# Sparkle
 
-**A multi-model AI agent desktop client** -- connect any AI provider, extend with MCP & skills, control from your phone, and let your assistant learn your workflow.
+Sparkle 是一个面向数字人内容生产的桌面创作中心。当前主入口已经收敛到「创作中心」：连接 SkyHuman / 飞天数字人 API 后，可以管理数字人形象和音色资产，并把文案或本地音频批量生成数字人视频。
 
-[![GitHub release](https://img.shields.io/github/v/release/Hujiazeng/Sparkle)](https://github.com/Hujiazeng/Sparkle/releases)
-[![Downloads](https://img.shields.io/github/downloads/Hujiazeng/Sparkle/total)](https://github.com/Hujiazeng/Sparkle/releases)
-[![GitHub stars](https://img.shields.io/github/stars/Hujiazeng/Sparkle)](https://github.com/Hujiazeng/Sparkle/stargazers)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/Hujiazeng/Sparkle/releases)
-[![License](https://img.shields.io/badge/license-BSL--1.1-orange)](LICENSE)
+项目基于 Electron + Next.js，数据保存在本机 SQLite 中，适合本地运行、调试和继续扩展数字人视频生产流程。
 
-[中文文档](./README_CN.md) | [日本語](./README_JA.md)
+## 当前重点
 
----
+- 创作中心：按批次维护口播任务，支持文案任务和音频任务两种输入。
+- 数字人形象库：同步 SkyHuman 形象，上传视频创建克隆任务，轮询任务状态，支持详情查看和删除。
+- 音色库：同步个人/公共音色，上传音频创建音色克隆任务，支持试听、编辑参数和任务轮询。
+- 批量生成：为每条任务选择数字人形象、音色、输出目录和并发数量，一键处理当前批次。
+- 本地落盘：生成完成的视频会下载到本地输出目录，工作台状态会持久化到本机。
 
-## 🚧 Project Refactor Notice / 项目重构公告
+## 创作中心功能
 
-**EN:** Sparkle is undergoing a larger product refactor before the next release. We are rebuilding the runtime/session foundation, background resident tasks and local notifications, scheduled AI work, Markdown/Artifact previews, and local agent adapters such as Codex. Existing releases remain available; the next versions will focus on making these foundations stable and useful.
+创作中心页面位于 `src/app/creation-center/page.tsx`，实际工作台组件为 `src/components/digital-human/DigitalHumanWorkbench.tsx`。
 
-**中文：** Sparkle 正在进行一次较大的产品重构，为下一轮正式发布整理底层能力。重点包括会话级 Runtime、后台常驻任务与本机通知、定时提醒和后台 AI 任务、Markdown / Artifact 预览稳定性，以及 Codex 等本地 Agent 适配。现有版本仍可下载使用；接下来的版本会优先把这些基础能力做稳、做好用。
+### 任务输入
 
----
+每条任务属于一个批次，支持两种来源：
 
-![Sparkle](https://github.com/user-attachments/assets/9750450a-9f6f-49ce-acd4-c623a4e24281)
+| 来源 | 流程 |
+| --- | --- |
+| 文案 | 文案 -> SkyHuman TTS 音频任务 -> 音频完成后创建数字人视频任务 |
+| 音频 | 上传或选择本地音频 -> 上传到 SkyHuman -> 创建数字人视频任务 |
 
----
+任务行可以设置：
 
-[Download](#download) | [Quick Start](#quick-start) | [Documentation](#documentation) | [Contributing](#contributing) | [Community](#community)
+- 数字人形象
+- 音色
+- 文案内容或音频文件
+- 任务状态筛选
+- 搜索关键词
 
----
+### 批次与队列
 
-## Download
+- 批次名按日期和序号生成，例如 `2026052002`。
+- 支持新建批次、给批次追加任务、删除任务、失败后重试。
+- 支持按状态查看草稿、排队中、生成语音、生成视频、已完成和失败任务。
+- 支持分页和页码跳转，默认每页 10 条任务。
+- 支持配置并发数量，默认并发为 3，最多限制到 10。
 
-| Platform | Download | Architecture |
-|---|---|---|
-| macOS | [Apple Silicon (.dmg)](https://github.com/Hujiazeng/Sparkle/releases/latest) · [Intel (.dmg)](https://github.com/Hujiazeng/Sparkle/releases/latest) | arm64 / x64 |
-| Windows | [Installer (.exe)](https://github.com/Hujiazeng/Sparkle/releases/latest) | x64 + arm64 |
-| Linux | [AppImage](https://github.com/Hujiazeng/Sparkle/releases/latest) · [.deb](https://github.com/Hujiazeng/Sparkle/releases/latest) · [.rpm](https://github.com/Hujiazeng/Sparkle/releases/latest) | x64 + arm64 |
+### 生成状态
 
-Or visit the [Releases](https://github.com/Hujiazeng/Sparkle/releases) page for all versions.
+工作台会把任务推进为以下状态：
 
----
+| 状态 | 含义 |
+| --- | --- |
+| 草稿 | 任务尚未提交 |
+| 排队中 | 已加入当前批次生成队列 |
+| 生成语音 | 文案任务正在等待 TTS 音频 |
+| 生成视频 | 正在等待数字人视频任务完成 |
+| 已完成 | 视频已生成并下载到本地 |
+| 失败 | SkyHuman 调用、轮询或下载过程中出现错误 |
 
-## Why Sparkle
+### 输出目录
 
-### Multi-provider, one interface
+默认输出目录为仓库下的 `results/`。在 Electron 环境中可以通过文件夹选择器改为其他目录。
 
-Connect to **17+ AI providers** out of the box. Switch providers and models mid-conversation without losing context.
+生成完成后，视频会按批次保存为类似结构：
 
-| Category | Providers |
-|---|---|
-| Direct API | Anthropic, OpenRouter |
-| Cloud platforms | AWS Bedrock, Google Vertex AI |
-| Chinese AI providers | Zhipu GLM (CN/Global), Kimi, Moonshot, MiniMax (CN/Global), Volcengine Ark (Doubao), Xiaomi MiMo, Aliyun Bailian (Qwen) |
-| Local & self-hosted | Ollama, LiteLLM |
-| Custom | Any Anthropic-compatible or OpenAI-compatible endpoint |
-| Media | Google Gemini (image generation) |
+```text
+results/
+  2026-05-20/
+    2026052002/
+      001.mp4
+      002.mp4
+```
 
-### Beyond coding — a full AI agent
+相关接口：
 
-Sparkle started as a coding tool but has grown into a **general-purpose AI agent desktop**:
+- `POST /api/digital-human/videos`：提交文案或音频任务。
+- `GET /api/digital-human/videos?kind=audio|video&taskId=...`：轮询音频或视频任务。
+- `PUT /api/digital-human/videos`：用已生成音频 URL 创建视频任务。
+- `POST /api/digital-human/videos/download`：下载生成视频到本地。
+- `GET /api/digital-human/output-root`：初始化和返回默认输出目录。
+- `GET/PUT /api/digital-human/workbench-state`：读取和保存工作台状态。
 
-- **Assistant Workspace** — Persona files, persistent memory, onboarding flows, and daily check-ins. Your assistant learns your preferences and adapts over time.
-- **Generative UI** — AI can create interactive dashboards, charts, and visual widgets rendered live in-app.
-- **Remote Bridge** — Connect to Telegram, Feishu, Discord, QQ, and WeChat. Send messages from your phone, get responses on your desktop.
-- **MCP + Skills** — Add MCP servers (stdio / sse / http) with runtime monitoring. Define reusable skills or install from the skills.sh marketplace.
-- **Media Studio** — AI image generation with batch tasks, gallery, and tagging.
-- **Task Scheduler** — Schedule recurring tasks with cron expressions or intervals.
+## 资产管理
 
-### Built for daily use
+### SkyHuman API 配置
 
-- Pause, resume, and **rewind sessions to any checkpoint**
-- **Split-screen** dual sessions side by side
-- Track **token usage and costs** with daily charts
-- Import Claude Code CLI session history
-- Dark / Light theme toggle
-- English + Chinese interface
+设置页的 `APIKEY` 区域用于保存 SkyHuman API Token。Token 存在本地 SQLite 的 `settings` 表中，读取时会做掩码展示。
 
----
+相关接口：
 
-## Quick Start
+- `GET /api/settings/digital-human`
+- `PUT /api/settings/digital-human`
+- `POST /api/settings/digital-human/verify`
 
-### Path A: Download a release (most users)
+验证接口会调用 SkyHuman 积分接口，用于确认 Token 是否可用。
 
-1. Download the installer for your platform from the [Download](#download) section above
-2. Launch Sparkle
-3. **Configure a Provider** in **Settings > Providers** — add your API key for any supported provider
-4. Start a conversation
+### 数字人形象
 
-> **Note:** Installing the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) (`npm install -g @anthropic-ai/claude-code`) unlocks additional capabilities like direct file editing, terminal commands, and git operations. It is recommended but not required for basic chat.
+数字人页面位于 `/digital-human`，组件为 `src/components/digital-human/DigitalHumanLibrary.tsx`。
 
-### Path B: Build from source (developers)
+已接入能力：
 
-| Prerequisite | Minimum version |
-|---|---|
-| Node.js | 18+ |
-| npm | 9+ (ships with Node 18) |
+- 同步 SkyHuman 数字人列表。
+- 仅看收藏、按状态筛选、按日期筛选和排序。
+- 上传视频创建数字人克隆任务。
+- 每 6 秒轮询克隆任务状态。
+- 删除已同步的数字人形象。
+- 将可用形象同步给创作中心下拉选择。
+
+### 音色
+
+音色页面位于 `/voices`，组件为 `src/components/voices/VoiceLibrary.tsx`。
+
+已接入能力：
+
+- 同步个人音色和公共音色。
+- 上传音频创建音色克隆任务。
+- 每 6 秒轮询音色任务状态。
+- 使用 TTS 文本试听音色。
+- 编辑音色标题、语速、音量和音高。
+- 将可用音色同步给创作中心下拉选择。
+
+## 媒体与图库
+
+项目仍保留媒体管线和 Gallery。AI 生成图片、MCP/CLI 导入媒体、视频和音频素材会进入本地媒体库，Gallery 支持查看、收藏、筛选和删除。
+
+更多细节见：
+
+- `docs/handover/media-pipeline.md`
+- `src/lib/media-saver.ts`
+- `src/app/api/media/gallery/route.ts`
+
+## 技术栈
+
+| 层 | 技术 |
+| --- | --- |
+| 桌面外壳 | Electron 40 |
+| 前端 | Next.js 16 App Router, React 19 |
+| 样式 | Tailwind CSS 4, Radix UI |
+| 本地数据库 | better-sqlite3 |
+| 数字人服务 | SkyHuman / 飞天数字人 API |
+| AI / Agent 能力 | Claude Agent SDK, AI SDK providers, MCP, Skills |
+| 测试 | TypeScript, node:test, Playwright |
+| 打包 | electron-builder |
+
+## 本地开发
+
+### 环境要求
+
+- Node.js 18+
+- npm 9+
+
+### 安装依赖
 
 ```bash
-git clone https://github.com/Hujiazeng/Sparkle.git
-cd Sparkle
 npm install
-npm run dev              # browser mode at http://localhost:3000
-# -- or --
-npm run electron:dev     # full desktop app
 ```
 
----
-
-## Core Capabilities
-
-### Conversation & Interaction
-
-| Capability | Details |
-|---|---|
-| Interaction modes | Code / Plan / Ask |
-| Reasoning effort | Low / Medium / High / Max + Thinking mode |
-| Permission control | Default / Full Access, per-action approval |
-| Session control | Pause, resume, rewind to checkpoint, archive |
-| Model switching | Change model mid-conversation |
-| Split screen | Side-by-side dual sessions |
-| Attachments | Files and images with multimodal vision support |
-| Slash commands | /help /clear /cost /compact /doctor /review and more |
-
-### Extensions & Integrations
-
-| Capability | Details |
-|---|---|
-| Providers | 17+ providers: Anthropic, OpenRouter, Bedrock, Vertex, Zhipu GLM, Kimi, Moonshot, MiniMax, Volcengine, MiMo, Bailian, Ollama, LiteLLM, custom endpoints |
-| MCP servers | stdio / sse / http, runtime status monitoring |
-| Skills | Custom / project / global skills, skills.sh marketplace |
-| Bridge | Telegram / Feishu / Discord / QQ / WeChat remote control |
-| CLI import | Import Claude Code CLI .jsonl session history |
-| Image generation | Gemini image gen, batch tasks, gallery |
-
-### Data & Workspace
-
-| Capability | Details |
-|---|---|
-| Assistant Workspace | Persona files (soul.md, user.md, claude.md, memory.md), onboarding, daily check-ins, persistent memory |
-| Generative UI | AI-created interactive dashboards and visual widgets |
-| File browser | Project file tree with syntax-highlighted preview |
-| Git panel | Status, branches, commits, worktree management |
-| Usage analytics | Token counts, cost estimates, daily usage charts |
-| Task scheduler | Cron-based and interval scheduling with persistence |
-| Local storage | SQLite (WAL mode), all data stays on your machine |
-| i18n | English + Chinese |
-| Themes | Dark / Light, one-click toggle |
-
----
-
-## First Launch
-
-1. **Configure a Provider** — Go to **Settings > Providers** and add credentials for the provider you want to use. Sparkle includes presets for all major providers — just pick one and enter your API key.
-2. **Create a conversation** — Pick a working directory, select a mode (Code / Plan / Ask), and choose a model.
-3. **Set up Assistant Workspace** (optional) — Go to **Settings > Assistant**, choose a workspace directory, and enable Onboarding. Sparkle creates `soul.md`, `user.md`, `claude.md`, and `memory.md` at the workspace root.
-4. **Add MCP servers** (optional) — Go to the **MCP** page in the sidebar to add and manage MCP servers. Custom skills are managed on the separate **Skills** page.
-5. **Install Claude Code CLI** (optional) — For advanced features like file editing and terminal commands, install the CLI: `npm install -g @anthropic-ai/claude-code`
-
----
-
-## Platform & Installation Notes
-
-macOS builds are code-signed with a Developer ID certificate but not notarized, so Gatekeeper may still prompt on first launch. Windows and Linux builds are unsigned.
-
-<details>
-<summary>macOS: Gatekeeper warning on first launch</summary>
-
-**Option 1** -- Right-click `Sparkle.app` in Finder > Open > confirm.
-
-**Option 2** -- System Settings > Privacy & Security > scroll to Security > click Open Anyway.
-
-**Option 3** -- Run in Terminal:
-```bash
-xattr -cr /Applications/Sparkle.app
-```
-</details>
-
-<details>
-<summary>Windows: SmartScreen blocks the installer</summary>
-
-**Option 1** -- Click "More info" on the SmartScreen dialog, then "Run anyway".
-
-**Option 2** -- Settings > Apps > Advanced app settings > set App Install Control to allow apps from anywhere.
-</details>
-
----
-
-## Documentation
-
-📖 **Full documentation:** [English](https://www.codepilot.sh/docs) | [中文](https://www.codepilot.sh/zh/docs)
-
-**Getting started:**
-- [Quick Start](#quick-start) -- Download or build from source
-- [First Launch](#first-launch) -- Provider setup, workspace configuration
-- [Installation Guide](https://www.codepilot.sh/docs/installation) -- Detailed setup instructions
-
-**User guides:**
-- [Providers](https://www.codepilot.sh/docs/providers) -- Configuring AI providers and custom endpoints
-- [MCP Servers](https://www.codepilot.sh/docs/mcp) -- Adding and managing Model Context Protocol servers
-- [Skills](https://www.codepilot.sh/docs/skills) -- Custom skills, project skills, and the skills.sh marketplace
-- [Bridge](https://www.codepilot.sh/docs/bridge) -- Remote control via Telegram, Feishu, Discord, QQ, WeChat
-- [Assistant Workspace](https://www.codepilot.sh/docs/assistant-workspace) -- Persona files, onboarding, memory, daily check-ins
-- [FAQ](https://www.codepilot.sh/docs/faq) -- Common issues and solutions
-
-**Developer docs:**
-- [ARCHITECTURE.md](./ARCHITECTURE.md) -- Architecture, tech stack, directory structure, data flow
-- [docs/handover/](./docs/handover/) -- Design decisions and handover documents
-- [docs/exec-plans/](./docs/exec-plans/) -- Execution plans and tech debt tracker
-
----
-
-## FAQ
-
-<details>
-<summary>Do I need the Claude Code CLI?</summary>
-
-No. You can use Sparkle with any supported provider (OpenRouter, Zhipu GLM, Volcengine, Ollama, etc.) without the Claude Code CLI. The CLI is only needed if you want Claude to directly edit files, run terminal commands, or use git operations on your machine. For chat and assistant features, just configure a provider and start a conversation.
-</details>
-
-<details>
-<summary>Configured a Provider but no models appear</summary>
-
-Verify the API key is valid and the endpoint is reachable. Some providers (Bedrock, Vertex) require additional environment variables or IAM configuration beyond the API key. Use the built-in diagnostics (**Settings > Providers > Run Diagnostics**) to check connectivity.
-</details>
-
-<details>
-<summary>What is the difference between <code>npm run dev</code> and <code>npm run electron:dev</code>?</summary>
-
-`npm run dev` starts only the Next.js dev server -- you use Sparkle in your browser at `http://localhost:3000`. `npm run electron:dev` starts both Next.js and the Electron shell, giving you the full desktop app experience with native window controls.
-</details>
-
-<details>
-<summary>Where are the Assistant Workspace files?</summary>
-
-When you set up a workspace, Sparkle creates four Markdown files at the **workspace root directory**: `soul.md` (personality), `user.md` (user profile), `claude.md` (rules), and `memory.md` (long-term notes). State tracking (onboarding progress, check-in dates) is stored in the `.assistant/` subdirectory. Daily memories go to `memory/daily/`.
-</details>
-
-<details>
-<summary>Bridge requires additional setup per platform</summary>
-
-Each Bridge channel (Telegram, Feishu, Discord, QQ, WeChat) requires its own bot token or app credentials. Go to the **Bridge** page in the sidebar to configure channels. You will need to create a bot on the target platform first and provide the token to Sparkle.
-</details>
-
----
-
-## Community
-
-<img src="docs/wechat-group-qr.png" width="240" alt="WeChat Group QR Code" />
-
-Scan the QR code to join the WeChat user group for discussions, feedback, and updates.
-
-- [GitHub Issues](https://github.com/Hujiazeng/Sparkle/issues) -- Bug reports and feature requests
-- [GitHub Discussions](https://github.com/Hujiazeng/Sparkle/discussions) -- Questions and general discussion
-
----
-
-## Contributing
-
-1. Fork the repository and create a feature branch
-2. `npm install` and `npm run electron:dev` to develop locally
-3. Run `npm run test` before opening a PR
-4. Submit a PR against `main` with a clear description
-
-Keep PRs focused -- one feature or fix per pull request.
-
-<details>
-<summary>Development commands</summary>
+### 启动 Web 开发环境
 
 ```bash
-npm run dev                    # Next.js dev server (browser)
-npm run electron:dev           # Full Electron app (dev mode)
-npm run build                  # Production build
-npm run electron:build         # Build Electron distributable
-npm run electron:pack:mac      # macOS DMG (arm64 + x64)
-npm run electron:pack:win      # Windows NSIS installer
-npm run electron:pack:linux    # Linux AppImage, deb, rpm
+npm run dev
 ```
 
-**CI/CD:** Pushing a `v*` tag triggers a full multi-platform build and creates a GitHub Release automatically.
+默认地址为 `http://localhost:3000`，根路径会跳转到 `/creation-center`。
 
-**Notes:**
-- Electron forks a Next.js standalone server on `127.0.0.1` with a random free port
-- Chat data is stored in `~/.codepilot/codepilot.db` (dev mode: `./data/`)
-- SQLite uses WAL mode for fast concurrent reads
-</details>
+### 启动 Electron 开发环境
 
----
+```bash
+npm run electron:dev
+```
+
+需要验证本地文件路径、选择输出目录、打开输出文件夹等桌面能力时，应使用 Electron 开发环境。
+
+## 配置流程
+
+1. 启动应用。
+2. 打开设置页的 `APIKEY` 区域。
+3. 填写 SkyHuman API Token 并点击验证。
+4. 打开 `/digital-human`，确认数字人形象已同步，或上传视频创建形象。
+5. 打开 `/voices`，确认音色已同步，或上传音频创建音色。
+6. 回到 `/creation-center`，选择批次、形象、音色和输出目录。
+7. 添加文案或音频任务，点击批量生成。
+
+## 常用命令
+
+```bash
+npm run test          # typecheck + 单元测试
+npm run test:smoke    # Playwright 冒烟测试，需要 dev server
+npm run test:e2e      # 完整 E2E 测试，需要 dev server
+npm run build         # Next.js 构建
+npm run electron:pack # Electron 打包
+```
+
+## 关键目录
+
+```text
+src/app/creation-center/          # 创作中心页面
+src/components/digital-human/     # 创作中心和数字人形象库
+src/components/voices/            # 音色库
+src/app/api/digital-human/        # 数字人形象、视频、输出目录接口
+src/app/api/voices/               # 音色和试听接口
+src/app/api/settings/digital-human/ # SkyHuman Token 配置接口
+src/lib/skyhuman.ts               # SkyHuman API client
+src/lib/digital-human-assets-cache.ts # 创作中心可用资产缓存
+src/lib/db.ts                     # SQLite schema 和设置持久化
+docs/handover/                    # 交接文档
+docs/exec-plans/                  # 执行计划
+docs/research/                    # 调研文档
+```
+
+## 开发注意事项
+
+- UI 改动必须启动开发环境，并通过 chrome-devtools MCP 实际截图和检查 console。
+- 提交前至少运行 `npm run test`。
+- 涉及构建或打包的改动需要完整执行对应打包流程。
+- 涉及新增数据库字段时，需要同步更新 `src/lib/db.ts` 的 schema 和迁移逻辑。
+- 涉及类型变更时，需要同步更新 `src/types/index.ts`。
+- 涉及用户可见文案或页面结构时，检查是否需要同步 i18n。
+- Worktree 任务只能在当前 Worktree 内修改和启动服务。
+
+## 文档索引
+
+- `ARCHITECTURE.md`：项目架构、目录结构和数据流。
+- `docs/handover/media-pipeline.md`：媒体保存、内联渲染、Gallery 和 MCP 媒体工具。
+- `docs/exec-plans/active/digital-human-skyhuman-config.md`：SkyHuman 配置和数字人链路执行计划。
+- `docs/exec-plans/README.md`：执行计划索引。
+- `docs/research/README.md`：调研文档索引。
 
 ## License
 
-[Business Source License 1.1 (BSL-1.1)](LICENSE)
-
-- **Personal / academic / non-profit use**: free and unrestricted
-- **Commercial use**: requires a separate license — contact [@op7418 on X](https://x.com/op7418)
-- **Change date**: 2029-03-16 — after which the code converts to Apache 2.0
+本项目使用 `BUSL-1.1` 许可证，详见 `LICENSE`。
