@@ -1,9 +1,8 @@
 appId: com.codepilot.app
 productName: Sparkle
 publish:
-  provider: github
-  owner: Hujiazeng
-  repo: Sparkle
+  provider: generic
+  url: https://cdn-oss.pilihu.vip/sparkle/releases/
 directories:
   output: release
 files:

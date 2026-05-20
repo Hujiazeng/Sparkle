@@ -5,12 +5,93 @@ export interface ReleaseAsset {
   browser_download_url: string;
 }
 
+export interface GenericUpdateFile {
+  url: string;
+  size?: number;
+}
+
+export interface GenericUpdateInfo {
+  version?: string;
+  path?: string;
+  releaseName?: string;
+  releaseNotes?: string;
+  releaseDate?: string;
+  files?: GenericUpdateFile[];
+}
+
 export function isElectronUpdaterReleaseAsset(name: string): boolean {
   const normalized = name.toLowerCase();
   return (
     normalized.endsWith('.blockmap') ||
     /^latest.*\.yml$/.test(normalized)
   );
+}
+
+export function parseGenericUpdateInfo(content: string): GenericUpdateInfo {
+  const info: GenericUpdateInfo = {};
+  const files: GenericUpdateFile[] = [];
+  let inFiles = false;
+  let currentFile: GenericUpdateFile | null = null;
+
+  const commitFile = () => {
+    if (currentFile?.url) files.push(currentFile);
+    currentFile = null;
+  };
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    if (line === 'files:') {
+      inFiles = true;
+      continue;
+    }
+
+    const fileUrlMatch = line.match(/^-\s+url:\s*(.+)$/);
+    if (fileUrlMatch) {
+      commitFile();
+      currentFile = { url: unquoteYamlScalar(fileUrlMatch[1]) };
+      inFiles = true;
+      continue;
+    }
+
+    const keyValueMatch = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
+    if (!keyValueMatch) continue;
+
+    const [, key, rawValue] = keyValueMatch;
+    const value = unquoteYamlScalar(rawValue);
+
+    if (inFiles && currentFile && key === 'url') {
+      currentFile.url = value;
+    } else if (inFiles && currentFile && key === 'size') {
+      currentFile.size = Number(value) || undefined;
+    } else if (!inFiles && key === 'version') {
+      info.version = value;
+    } else if (!inFiles && key === 'path') {
+      info.path = value;
+    } else if (!inFiles && key === 'releaseName') {
+      info.releaseName = value;
+    } else if (!inFiles && key === 'releaseNotes') {
+      info.releaseNotes = value;
+    } else if (!inFiles && key === 'releaseDate') {
+      info.releaseDate = value;
+    }
+  }
+
+  commitFile();
+  if (files.length > 0) info.files = files;
+  return info;
+}
+
+function unquoteYamlScalar(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 function normalizeArch(value: string | undefined): string {
