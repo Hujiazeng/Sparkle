@@ -25,6 +25,7 @@ import fs from 'fs';
 import net from 'net';
 import os from 'os';
 import { TerminalManager } from './terminal-manager';
+import { initAutoUpdater, setUpdaterWindow } from './updater';
 
 /**
  * Return a copy of process.env without __NEXT_PRIVATE_* variables.
@@ -792,6 +793,8 @@ function createWindow(url?: string) {
   }
 
   mainWindow = new BrowserWindow(windowOptions);
+  setUpdaterWindow(mainWindow);
+  initAutoUpdater(mainWindow);
 
   // External links: open in system default browser instead of Electron
   mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
@@ -817,6 +820,7 @@ function createWindow(url?: string) {
   }
 
   mainWindow.on('closed', () => {
+    setUpdaterWindow(null);
     mainWindow = null;
   });
 }

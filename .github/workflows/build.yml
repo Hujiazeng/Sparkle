@@ -110,6 +110,8 @@ jobs:
           name: build-windows
           path: |
             release/*.exe
+            release/*.exe.blockmap
+            release/latest*.yml
             release/checksums-windows.sha256
           retention-days: 3
 
@@ -199,6 +201,9 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/*.dmg.blockmap
+            release/*.zip.blockmap
+            release/latest*.yml
             release/checksums-macos.sha256
           retention-days: 3
 
@@ -282,6 +287,8 @@ jobs:
             release/*.AppImage
             release/*.deb
             release/*.rpm
+            release/*.AppImage.blockmap
+            release/latest*.yml
             release/checksums-linux-x64.sha256
           retention-days: 3
 
@@ -369,6 +376,7 @@ jobs:
             release/*.AppImage
             release/*.deb
             release/*.rpm
+            release/*.AppImage.blockmap
             release/checksums-linux-arm64.sha256
           retention-days: 3
 
@@ -461,11 +469,12 @@ jobs:
           echo "=== Combined checksums ==="
           cat artifacts/SHA256SUMS.txt
 
-          # Collect release files: installers + checksum file (no blockmap / update metadata)
+          # Collect release files: installers + checksum file + electron-updater metadata.
+          # latest*.yml and *.blockmap are required for native auto-update.
           FILES=()
           while IFS= read -r f; do
             FILES+=("$f")
-          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) | sort)
+          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.blockmap" -o -name "latest*.yml" \) | sort)
           FILES+=("artifacts/SHA256SUMS.txt")
 
           gh release create "${GITHUB_REF_NAME}" \

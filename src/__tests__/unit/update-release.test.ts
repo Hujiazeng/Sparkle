@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectRecommendedReleaseAsset, type ReleaseAsset } from '../../lib/update-release';
+import {
+  isElectronUpdaterReleaseAsset,
+  selectRecommendedReleaseAsset,
+  type ReleaseAsset,
+} from '../../lib/update-release';
 
 const assets: ReleaseAsset[] = [
   {
@@ -64,5 +68,20 @@ describe('selectRecommendedReleaseAsset', () => {
     });
 
     assert.equal(selected, null);
+  });
+});
+
+describe('isElectronUpdaterReleaseAsset', () => {
+  it('recognizes electron-updater metadata files required in GitHub Releases', () => {
+    assert.equal(isElectronUpdaterReleaseAsset('latest.yml'), true);
+    assert.equal(isElectronUpdaterReleaseAsset('latest-mac.yml'), true);
+    assert.equal(isElectronUpdaterReleaseAsset('Sparkle.Setup.0.54.0.exe.blockmap'), true);
+    assert.equal(isElectronUpdaterReleaseAsset('Sparkle-0.54.0-arm64.dmg.blockmap'), true);
+  });
+
+  it('does not classify installers or checksums as updater metadata', () => {
+    assert.equal(isElectronUpdaterReleaseAsset('Sparkle.Setup.0.54.0.exe'), false);
+    assert.equal(isElectronUpdaterReleaseAsset('Sparkle-0.54.0-arm64.dmg'), false);
+    assert.equal(isElectronUpdaterReleaseAsset('SHA256SUMS.txt'), false);
   });
 });

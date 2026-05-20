@@ -5,6 +5,14 @@ export interface ReleaseAsset {
   browser_download_url: string;
 }
 
+export function isElectronUpdaterReleaseAsset(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized.endsWith('.blockmap') ||
+    /^latest.*\.yml$/.test(normalized)
+  );
+}
+
 function normalizeArch(value: string | undefined): string {
   if (!value) return '';
   const normalized = value.toLowerCase();
