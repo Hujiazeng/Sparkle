@@ -34,7 +34,8 @@
     "electron:pack:mac": "npm run electron:build && electron-builder --mac --config electron-builder.yml",
     "electron:pack:win": "npm run electron:build && electron-builder --win --config electron-builder.yml",
     "electron:pack:linux": "npm run electron:build && electron-builder --linux --config electron-builder.yml",
-    "release:upload:oss": "node scripts/upload-oss-release.mjs"
+    "release:upload:oss": "node scripts/upload-oss-release.mjs",
+    "release:upload:oss-policy": "node scripts/upload-oss-policy.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

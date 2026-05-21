@@ -20,6 +20,9 @@ export interface UpdateInfo {
   detectedArch?: string;
   hostArch?: string;
   runningUnderRosetta?: boolean;
+  forceUpdate?: boolean;
+  minSupportedVersion?: string;
+  policyMessage?: string;
 }
 
 export interface UpdateContextValue {

@@ -19,6 +19,45 @@ export interface GenericUpdateInfo {
   files?: GenericUpdateFile[];
 }
 
+export interface UpdatePolicy {
+  force: boolean;
+  minSupportedVersion?: string;
+  message?: string;
+}
+
+export function compareSemver(a: string, b: string): number {
+  const pa = a.replace(/^v/, '').split('.').map(Number);
+  const pb = b.replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+export function parseUpdatePolicy(content: string): UpdatePolicy | null {
+  try {
+    const raw = JSON.parse(content) as Record<string, unknown>;
+    const minSupportedVersion = typeof raw.minSupportedVersion === 'string'
+      ? raw.minSupportedVersion.replace(/^v/, '')
+      : undefined;
+    const message = typeof raw.message === 'string' ? raw.message : undefined;
+
+    return {
+      force: raw.force === true,
+      ...(minSupportedVersion ? { minSupportedVersion } : {}),
+      ...(message ? { message } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function shouldForceUpdate(currentVersion: string, policy: UpdatePolicy | null | undefined): boolean {
+  if (!policy?.force || !policy.minSupportedVersion) return false;
+  return compareSemver(policy.minSupportedVersion, currentVersion) > 0;
+}
+
 export function isElectronUpdaterReleaseAsset(name: string): boolean {
   const normalized = name.toLowerCase();
   return (

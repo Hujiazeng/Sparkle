@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+
 export default defineConfig({
   testDir: './src/__tests__/e2e',
   fullyParallel: true,
@@ -10,6 +12,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
+    ...(chromiumExecutablePath
+      ? { launchOptions: { executablePath: chromiumExecutablePath } }
+      : {}),
   },
   expect: {
     toHaveScreenshot: {

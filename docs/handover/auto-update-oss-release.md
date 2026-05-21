@@ -12,6 +12,10 @@ The update feed is `latest.yml`. On Windows the minimum required files are:
 - `Sparkle.Setup.{version}.exe`
 - `Sparkle.Setup.{version}.exe.blockmap`
 
+Optional force-update policy:
+
+- `update-policy.json`
+
 ## Code Paths
 
 | Path | Purpose |
@@ -23,7 +27,9 @@ The update feed is `latest.yml`. On Windows the minimum required files are:
 | `src/app/api/app/updates/route.ts` | Browser fallback, reads CDN `latest.yml` |
 | `src/lib/update-release.ts` | Parses `latest.yml` for fallback API |
 | `scripts/upload-oss-release.mjs` | Uploads release artifacts to OSS |
+| `scripts/upload-oss-policy.mjs` | Uploads `update-policy.json` to OSS |
 | `oss.env.example` | Non-secret template for local OSS config |
+| `update-policy.example.json` | Non-secret sample force-update policy |
 
 ## Local OSS Config
 
@@ -38,6 +44,35 @@ CDN_BASE_URL=https://cdn-oss.pilihu.vip
 ```
 
 The upload script stores objects under `sparkle/releases/`, so `CDN_BASE_URL` must serve that OSS bucket.
+
+## Force Update Policy
+
+Sparkle supports an optional policy file beside `latest.yml`:
+
+```text
+https://cdn-oss.pilihu.vip/sparkle/releases/update-policy.json
+```
+
+Example:
+
+```json
+{
+  "force": true,
+  "minSupportedVersion": "0.54.0",
+  "message": "This version contains important fixes. Please update Sparkle to continue."
+}
+```
+
+When `force` is `true` and the current app version is lower than `minSupportedVersion`, Sparkle enters required-update mode:
+
+- the update dialog cannot be dismissed,
+- the "Later" action is hidden,
+- the main UI is covered by a blocking overlay,
+- native Electron installs still use `latest.yml` through `electron-updater`.
+
+If `update-policy.json` is missing or invalid, Sparkle falls back to normal optional update behavior.
+
+Before enabling force update in production, make sure `latest.yml` already points to an installer whose version is at least `minSupportedVersion`. Otherwise older clients can be blocked by the required-update wall without a real newer installer to install.
 
 ## Build And Upload
 
@@ -69,6 +104,16 @@ npm run release:upload:oss
 ```
 
 The script uploads installer files, blockmaps, and `latest*.yml` from `release/`. It intentionally does not upload `builder-debug.yml`.
+
+Upload `update-policy.json` separately when changing force-update rules:
+
+```powershell
+Copy-Item update-policy.example.json update-policy.json
+# Edit update-policy.json, then:
+npm run release:upload:oss-policy
+```
+
+Do not let local test policies accidentally replace production policy.
 
 ## Verification
 
@@ -146,7 +191,8 @@ For a full end-to-end installation test, install an older packaged Sparkle versi
 7. Verify CDN `latest.yml`, installer, and blockmap return HTTP 200.
 8. Run the simulated lower-version updater check.
 9. Run `npm rebuild better-sqlite3` after packaging before local Node tests.
-10. Commit source/script/doc changes only. Do not commit `.env.oss.local` or `release/`.
+10. If required, upload or update `update-policy.json` with `npm run release:upload:oss-policy` and verify it returns HTTP 200.
+11. Commit source/script/doc changes only. Do not commit `.env.oss.local` or `release/`.
 
 ## Notes
 

@@ -18,6 +18,19 @@ export function useUpdateChecker(): UpdateContextValue {
   // Runtime detection: native updater available when running in Electron with updater bridge
   const isNativeUpdater = typeof window !== "undefined" && !!window.electronAPI?.updater;
 
+  const fetchBrowserUpdateInfo = useCallback(async (): Promise<UpdateInfo | null> => {
+    const res = await fetch("/api/app/updates");
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      ...data,
+      downloadProgress: null,
+      readyToInstall: false,
+      isNativeUpdate: false,
+      lastError: null,
+    };
+  }, []);
+
   // --- Native updater status listener ---
   useEffect(() => {
     if (!isNativeUpdater) return;
@@ -36,6 +49,9 @@ export function useUpdateChecker(): UpdateContextValue {
             readyToInstall: false,
             isNativeUpdate: true,
             lastError: null,
+            forceUpdate: prev?.forceUpdate ?? false,
+            minSupportedVersion: prev?.minSupportedVersion ?? '',
+            policyMessage: prev?.policyMessage ?? '',
           }));
           {
             const ver = event.info?.version;
@@ -44,9 +60,35 @@ export function useUpdateChecker(): UpdateContextValue {
               setShowDialog(true);
             }
           }
+          fetchBrowserUpdateInfo().then((policyInfo) => {
+            if (!policyInfo) return;
+            setUpdateInfo((prev) => {
+              if (!prev) return { ...policyInfo, isNativeUpdate: true };
+              return {
+                ...prev,
+                currentVersion: policyInfo.currentVersion || prev.currentVersion,
+                releaseUrl: policyInfo.releaseUrl || prev.releaseUrl,
+                downloadUrl: policyInfo.downloadUrl || prev.downloadUrl,
+                downloadAssetName: policyInfo.downloadAssetName || prev.downloadAssetName,
+                detectedPlatform: policyInfo.detectedPlatform ?? prev.detectedPlatform,
+                detectedArch: policyInfo.detectedArch ?? prev.detectedArch,
+                hostArch: policyInfo.hostArch ?? prev.hostArch,
+                runningUnderRosetta: policyInfo.runningUnderRosetta ?? prev.runningUnderRosetta,
+                forceUpdate: policyInfo.forceUpdate ?? false,
+                minSupportedVersion: policyInfo.minSupportedVersion ?? '',
+                policyMessage: policyInfo.policyMessage ?? '',
+                isNativeUpdate: true,
+              };
+            });
+            if (policyInfo.forceUpdate) {
+              setShowDialog(true);
+            }
+          }).catch(() => {
+            // Policy metadata is best-effort; native update availability still works.
+          });
           break;
         case 'not-available':
-          setUpdateInfo((prev) => prev ? { ...prev, updateAvailable: false, isNativeUpdate: true, lastError: null } : prev);
+          setUpdateInfo((prev) => prev ? { ...prev, updateAvailable: false, isNativeUpdate: true, lastError: null, forceUpdate: false } : prev);
           break;
         case 'downloading':
           setUpdateInfo((prev) => prev ? {
@@ -80,27 +122,19 @@ export function useUpdateChecker(): UpdateContextValue {
       }
     });
     return cleanup;
-  }, [isNativeUpdater]);
+  }, [fetchBrowserUpdateInfo, isNativeUpdater]);
 
   // --- Browser-mode update check (fallback for non-Electron) ---
   const checkForUpdatesBrowser = useCallback(async () => {
     setChecking(true);
     try {
-      const res = await fetch("/api/app/updates");
-      if (!res.ok) return;
-      const data = await res.json();
-      const info: UpdateInfo = {
-        ...data,
-        downloadProgress: null,
-        readyToInstall: false,
-        isNativeUpdate: false,
-        lastError: null,
-      };
+      const info = await fetchBrowserUpdateInfo();
+      if (!info) return;
       setUpdateInfo(info);
 
       if (info.updateAvailable) {
         const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY);
-        if (dismissed !== info.latestVersion) {
+        if (info.forceUpdate || dismissed !== info.latestVersion) {
           setShowDialog(true);
         }
       }
@@ -109,7 +143,7 @@ export function useUpdateChecker(): UpdateContextValue {
     } finally {
       setChecking(false);
     }
-  }, []);
+  }, [fetchBrowserUpdateInfo]);
 
   // --- Unified check: native first, browser fallback ---
   const checkForUpdates = useCallback(async () => {
@@ -133,8 +167,9 @@ export function useUpdateChecker(): UpdateContextValue {
   }, [isNativeUpdater, checkForUpdatesBrowser]);
 
   const dismissUpdate = useCallback(() => {
+    if (updateInfo?.forceUpdate) return;
     setShowDialog(false);
-  }, []);
+  }, [updateInfo?.forceUpdate]);
 
   const downloadUpdate = useCallback(async () => {
     if (isNativeUpdater) {

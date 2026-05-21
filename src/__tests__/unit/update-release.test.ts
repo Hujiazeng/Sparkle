@@ -1,9 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  compareSemver,
   isElectronUpdaterReleaseAsset,
   parseGenericUpdateInfo,
+  parseUpdatePolicy,
   selectRecommendedReleaseAsset,
+  shouldForceUpdate,
   type ReleaseAsset,
 } from '../../lib/update-release';
 
@@ -104,5 +107,38 @@ releaseDate: '2026-05-20T10:00:00.000Z'
     assert.equal(info.releaseDate, '2026-05-20T10:00:00.000Z');
     assert.equal(info.files?.[0]?.url, 'Sparkle.Setup.0.55.0.exe');
     assert.equal(info.files?.[0]?.size, 12345);
+  });
+});
+
+describe('update policy', () => {
+  it('parses force update policy JSON', () => {
+    const policy = parseUpdatePolicy(JSON.stringify({
+      force: true,
+      minSupportedVersion: 'v0.54.0',
+      message: 'Please update',
+    }));
+
+    assert.equal(policy?.force, true);
+    assert.equal(policy?.minSupportedVersion, '0.54.0');
+    assert.equal(policy?.message, 'Please update');
+  });
+
+  it('returns null for invalid policy JSON', () => {
+    assert.equal(parseUpdatePolicy('{not json'), null);
+  });
+
+  it('forces update only below the minimum supported version', () => {
+    const policy = { force: true, minSupportedVersion: '0.54.0' };
+
+    assert.equal(shouldForceUpdate('0.53.0', policy), true);
+    assert.equal(shouldForceUpdate('0.54.0', policy), false);
+    assert.equal(shouldForceUpdate('0.55.0', policy), false);
+    assert.equal(shouldForceUpdate('0.53.0', { force: false, minSupportedVersion: '0.54.0' }), false);
+  });
+
+  it('compares semver-like versions consistently', () => {
+    assert.equal(compareSemver('0.54.0', '0.53.9') > 0, true);
+    assert.equal(compareSemver('v0.54.0', '0.54.0'), 0);
+    assert.equal(compareSemver('0.54.0', '0.55.0') < 0, true);
   });
 });

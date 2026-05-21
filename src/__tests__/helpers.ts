@@ -26,6 +26,9 @@ async function disableUpdateDialog(page: Page) {
         releaseUrl: '',
         downloadUrl: '',
         downloadAssetName: '',
+        forceUpdate: false,
+        minSupportedVersion: '',
+        policyMessage: '',
       }),
     });
   });
@@ -79,7 +82,8 @@ export async function goToSettingsTab(page: Page, tab: string) {
 
 /** Wait until the page has finished its initial load. */
 export async function waitForPageReady(page: Page) {
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
+  await page.locator('#__next-build-error, [data-nextjs-dialog]').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
   await page.waitForTimeout(300);
 }
 

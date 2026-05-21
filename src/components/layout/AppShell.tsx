@@ -416,6 +416,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const imageGenValue = useImageGenState();
   const batchImageGenValue = useBatchImageGenState();
+  const forceUpdate = !!updateContextValue.updateInfo?.forceUpdate;
 
   return (
     <UpdateContext.Provider value={updateContextValue}>
@@ -451,6 +452,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             </div>
+            {forceUpdate && (
+              <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm" aria-hidden="true" />
+            )}
           </div>
           <UpdateDialog />
           <Toaster />

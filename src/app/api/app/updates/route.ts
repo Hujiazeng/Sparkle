@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getRuntimeArchitectureInfo } from "@/lib/platform";
-import { parseGenericUpdateInfo } from "@/lib/update-release";
+import { compareSemver, parseGenericUpdateInfo, parseUpdatePolicy, shouldForceUpdate } from "@/lib/update-release";
 
 const UPDATE_BASE_URL = "https://cdn-oss.pilihu.vip/sparkle/releases/";
 const UPDATE_FEED_URL = `${UPDATE_BASE_URL}latest.yml`;
+const UPDATE_POLICY_URL = `${UPDATE_BASE_URL}update-policy.json`;
 
 function noUpdatePayload(currentVersion: string, runtimeInfo: ReturnType<typeof getRuntimeArchitectureInfo>) {
   return {
@@ -20,17 +21,20 @@ function noUpdatePayload(currentVersion: string, runtimeInfo: ReturnType<typeof 
     detectedArch: runtimeInfo.processArch,
     hostArch: runtimeInfo.hostArch,
     runningUnderRosetta: runtimeInfo.runningUnderRosetta,
+    forceUpdate: false,
+    minSupportedVersion: "",
+    policyMessage: "",
   };
 }
 
-function compareSemver(a: string, b: string): number {
-  const pa = a.replace(/^v/, "").split(".").map(Number);
-  const pb = b.replace(/^v/, "").split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] || 0) - (pb[i] || 0);
-    if (diff !== 0) return diff;
+async function fetchUpdatePolicy() {
+  try {
+    const res = await fetch(UPDATE_POLICY_URL, { next: { revalidate: 60 } });
+    if (!res.ok) return null;
+    return parseUpdatePolicy(await res.text());
+  } catch {
+    return null;
   }
-  return 0;
 }
 
 export async function GET() {
@@ -55,11 +59,13 @@ export async function GET() {
     const downloadUrl = downloadAssetName
       ? new URL(downloadAssetName, UPDATE_BASE_URL).toString()
       : UPDATE_BASE_URL;
+    const policy = await fetchUpdatePolicy();
+    const forceUpdate = shouldForceUpdate(currentVersion, policy);
 
     return NextResponse.json({
       latestVersion,
       currentVersion,
-      updateAvailable,
+      updateAvailable: updateAvailable || forceUpdate,
       releaseName: updateInfo.releaseName || `Sparkle v${latestVersion}`,
       releaseNotes: updateInfo.releaseNotes || "",
       publishedAt: updateInfo.releaseDate || "",
@@ -70,6 +76,9 @@ export async function GET() {
       detectedArch: runtimeInfo.processArch,
       hostArch: runtimeInfo.hostArch,
       runningUnderRosetta: runtimeInfo.runningUnderRosetta,
+      forceUpdate,
+      minSupportedVersion: policy?.minSupportedVersion || "",
+      policyMessage: policy?.message || "",
     });
   } catch {
     const currentVersion = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";

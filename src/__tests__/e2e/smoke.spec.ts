@@ -10,13 +10,13 @@ import {
 } from '../helpers';
 
 test.describe('Smoke @smoke', () => {
-  test('Home redirects to /chat @smoke', async ({ page }) => {
+  test('Home redirects to creation center @smoke', async ({ page }) => {
     const errors = collectConsoleErrors(page);
     const response = await page.goto('/');
     await waitForPageReady(page);
 
     expect(response?.status()).toBeLessThan(400);
-    expect(page.url()).toContain('/chat');
+    expect(page.url()).toContain('/creation-center');
 
     const title = await page.title();
     expect(title).not.toContain('404');

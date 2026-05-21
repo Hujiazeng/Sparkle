@@ -20,16 +20,31 @@ export function UpdateDialog() {
 
   if (!updateInfo?.updateAvailable) return null;
 
-  const { isNativeUpdate, readyToInstall, downloadProgress } = updateInfo;
+  const { isNativeUpdate, readyToInstall, downloadProgress, forceUpdate } = updateInfo;
   const isDownloading = isNativeUpdate && !readyToInstall && downloadProgress != null;
 
   return (
     <Dialog open={showDialog} onOpenChange={(open) => {
+      if (forceUpdate) return;
       if (!open) dismissUpdate();
     }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        showCloseButton={!forceUpdate}
+        onEscapeKeyDown={(event) => {
+          if (forceUpdate) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (forceUpdate) event.preventDefault();
+        }}
+        onInteractOutside={(event) => {
+          if (forceUpdate) event.preventDefault();
+        }}
+      >
         <DialogHeader>
-          <DialogTitle>{t('update.newVersionAvailable')}</DialogTitle>
+          <DialogTitle>
+            {forceUpdate ? t('update.requiredTitle') : t('update.newVersionAvailable')}
+          </DialogTitle>
           <DialogDescription>
             {updateInfo.releaseName}
             {updateInfo.publishedAt && (
@@ -39,6 +54,17 @@ export function UpdateDialog() {
             )}
           </DialogDescription>
         </DialogHeader>
+
+        {forceUpdate && (
+          <div className="rounded-md border border-status-warning-border bg-status-warning-muted px-3 py-2 text-sm text-status-warning-foreground">
+            {updateInfo.policyMessage || t('update.requiredMessage')}
+            {updateInfo.minSupportedVersion && (
+              <div className="mt-1 text-xs opacity-80">
+                {t('update.minSupportedVersion', { version: updateInfo.minSupportedVersion })}
+              </div>
+            )}
+          </div>
+        )}
 
         {updateInfo.releaseNotes && (
           <div className="max-h-60 overflow-auto rounded-md border border-border/50 bg-muted/30 p-3 text-sm">
@@ -117,9 +143,11 @@ export function UpdateDialog() {
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={dismissUpdate}>
-            {t('update.later')}
-          </Button>
+          {!forceUpdate && (
+            <Button variant="outline" onClick={dismissUpdate}>
+              {t('update.later')}
+            </Button>
+          )}
           {!isNativeUpdate ? (
             <Button
               onClick={() => {
