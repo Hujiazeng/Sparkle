@@ -76,6 +76,72 @@ Before enabling force update in production, make sure `latest.yml` already point
 
 ## Build And Upload
 
+### Forced Update Release Quick Start
+
+Use this flow for the normal Windows OSS release. By default, Sparkle releases are treated as required updates: every installed version lower than the new release version should be forced to update.
+
+1. Set the new version in `package.json`.
+2. Run `npm install` if `package-lock.json` changes or needs to sync.
+3. Run local checks:
+
+```powershell
+npm run test
+```
+
+4. Build the Windows installer:
+
+```powershell
+Remove-Item -Recurse -Force release, .next -ErrorAction SilentlyContinue
+npm run electron:build
+npx electron-builder --win nsis:x64 --config electron-builder.yml --publish never
+```
+
+5. Confirm `release/latest.yml` contains the new version and installer name.
+6. Upload installer artifacts and updater feed first:
+
+```powershell
+npm run release:upload:oss
+```
+
+7. Create or update the force-update policy. Set `minSupportedVersion` to the new release version if all older versions must update:
+
+```powershell
+Copy-Item update-policy.example.json update-policy.json
+```
+
+Example for releasing `0.55.0` as a required update:
+
+```json
+{
+  "force": true,
+  "minSupportedVersion": "0.55.0",
+  "message": "This version contains important fixes. Please update Sparkle to continue."
+}
+```
+
+8. Upload the policy only after the installer and `latest.yml` are reachable:
+
+```powershell
+npm run release:upload:oss-policy
+```
+
+9. Verify CDN files:
+
+```powershell
+Invoke-WebRequest https://cdn-oss.pilihu.vip/sparkle/releases/latest.yml -UseBasicParsing
+Invoke-WebRequest https://cdn-oss.pilihu.vip/sparkle/releases/update-policy.json -UseBasicParsing
+Invoke-WebRequest https://cdn-oss.pilihu.vip/sparkle/releases/Sparkle.Setup.0.55.0.exe -Method Head -UseBasicParsing
+Invoke-WebRequest https://cdn-oss.pilihu.vip/sparkle/releases/Sparkle.Setup.0.55.0.exe.blockmap -Method Head -UseBasicParsing
+```
+
+10. Run the lower-version updater simulation in the Verification section. Use an app version lower than `minSupportedVersion`, for example `0.54.0` when releasing `0.55.0`.
+
+To publish an optional update instead, set `"force": false` in `update-policy.json` before uploading the policy, or upload no policy file.
+
+The safe production order is important: upload `latest.yml` and the installer first, verify they are reachable, then upload `update-policy.json`. This prevents older clients from being blocked by the required-update wall before a valid installer is available.
+
+### Detailed Build Commands
+
 Before building, clean generated output:
 
 ```powershell
@@ -191,7 +257,7 @@ For a full end-to-end installation test, install an older packaged Sparkle versi
 7. Verify CDN `latest.yml`, installer, and blockmap return HTTP 200.
 8. Run the simulated lower-version updater check.
 9. Run `npm rebuild better-sqlite3` after packaging before local Node tests.
-10. If required, upload or update `update-policy.json` with `npm run release:upload:oss-policy` and verify it returns HTTP 200.
+10. By default, upload or update required-update `update-policy.json` with `npm run release:upload:oss-policy` and verify it returns HTTP 200.
 11. Commit source/script/doc changes only. Do not commit `.env.oss.local` or `release/`.
 
 ## Notes

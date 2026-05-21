@@ -1,5 +1,5 @@
 {
-  "force": false,
+  "force": true,
   "minSupportedVersion": "0.54.0",
   "message": "This version contains important fixes. Please update Sparkle to continue."
 }
