@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { shouldBypassShuanQAuth, shouldRefreshAfterShuanQAction, shuanQAuthEndpoint } from '../../lib/shuanq/auth-gate-policy';
+import {
+  shouldBypassShuanQAuth,
+  shouldQuitOnShuanQAppInfoFailure,
+  shouldRefreshAfterShuanQAction,
+  shuanQAuthEndpoint,
+} from '../../lib/shuanq/auth-gate-policy';
 
 describe('ShuanQ auth gate policy', () => {
   it('bypasses the gate for authenticated users', () => {
@@ -24,5 +29,10 @@ describe('ShuanQ auth gate policy', () => {
   it('refreshes after card use so account state stays current', () => {
     assert.equal(shouldRefreshAfterShuanQAction('card'), true);
     assert.equal(shouldRefreshAfterShuanQAction('login'), false);
+  });
+
+  it('quits instead of showing the login gate when app info is unavailable', () => {
+    assert.equal(shouldQuitOnShuanQAppInfoFailure({ appInfoUnavailable: true }), true);
+    assert.equal(shouldQuitOnShuanQAppInfoFailure({ appInfoUnavailable: false }), false);
   });
 });

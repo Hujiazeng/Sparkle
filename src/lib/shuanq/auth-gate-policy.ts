@@ -6,6 +6,10 @@ export function shouldBypassShuanQAuth(status: Pick<PublicShuanQStatus, 'authent
   return status.authenticated || Number(status.verifyMode) === 0;
 }
 
+export function shouldQuitOnShuanQAppInfoFailure(status: Pick<PublicShuanQStatus, 'appInfoUnavailable'>): boolean {
+  return status.appInfoUnavailable;
+}
+
 export function shuanQAuthEndpoint(kind: ShuanQAuthAction): string {
   switch (kind) {
     case 'login':

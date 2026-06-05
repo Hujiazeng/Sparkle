@@ -8,7 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
-import { shouldBypassShuanQAuth, shouldRefreshAfterShuanQAction, shuanQAuthEndpoint, type ShuanQAuthAction } from "@/lib/shuanq/auth-gate-policy";
+import {
+  shouldBypassShuanQAuth,
+  shouldQuitOnShuanQAppInfoFailure,
+  shouldRefreshAfterShuanQAction,
+  shuanQAuthEndpoint,
+  type ShuanQAuthAction,
+} from "@/lib/shuanq/auth-gate-policy";
 
 interface PublicShuanQStatus {
   bootstrapped: boolean;
@@ -77,6 +83,11 @@ export function ShuanQAuthGate({ children }: { children: React.ReactNode }) {
     refresh();
   }, []);
 
+  useEffect(() => {
+    if (!shouldQuitOnShuanQAppInfoFailure(status)) return;
+    window.electronAPI?.window?.quit?.();
+  }, [status]);
+
   const submit = async (kind: ShuanQAuthAction) => {
     setBusy(kind);
     setError("");
@@ -128,6 +139,17 @@ export function ShuanQAuthGate({ children }: { children: React.ReactNode }) {
 
   if (shouldBypassShuanQAuth(status)) {
     return <>{children}</>;
+  }
+
+  if (shouldQuitOnShuanQAppInfoFailure(status)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <SpinnerGap className="size-4 animate-spin" />
+          {t("auth.appInfoUnavailable" as TranslationKey)}
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -47,6 +47,8 @@ import { showToast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import {
   getDigitalHumanAssetsSnapshot,
+  refreshDigitalHumanAssets,
+  setDigitalHumanVoiceProvider,
   subscribeDigitalHumanAssets,
   type CachedWorkbenchAvatar,
   type CachedWorkbenchVoice,
@@ -55,6 +57,7 @@ import {
 type JobStatus = "draft" | "queued" | "voice" | "video" | "done" | "error";
 type JobSource = "script" | "audio";
 type StatusFilter = "all" | JobStatus | "running";
+type VoiceProvider = "skyhuman" | "indextts";
 
 type WorkbenchAvatar = CachedWorkbenchAvatar;
 type WorkbenchVoice = CachedWorkbenchVoice;
@@ -88,6 +91,7 @@ const SELECTED_BATCH_STORAGE_KEY = "digital-human:selected-batch";
 const DIGITAL_HUMAN_WORKBENCH_STORAGE_KEY = "digital-human:workbench-state";
 const WORKBENCH_STATE_API = "/api/digital-human/workbench-state";
 const EMPTY_ASSET_ID = "__empty_asset__";
+const RANDOM_AVATAR_ID = "__random_avatar__";
 const TABLE_GRID_COLUMNS = "grid-cols-[52px_110px_minmax(280px,1fr)_140px_150px_120px_156px]";
 
 interface WorkbenchStateSnapshot {
@@ -167,6 +171,20 @@ function createRow(index: number, batchName: string, overrides: Partial<ScriptRo
     progress: 0,
     ...overrides,
   };
+}
+
+function normalizeVoiceProvider(value: string): VoiceProvider {
+  return value === "indextts" ? "indextts" : "skyhuman";
+}
+
+function pickRandomAvatarId(avatars: WorkbenchAvatar[]) {
+  if (avatars.length === 0) return EMPTY_ASSET_ID;
+  const index = Math.floor(Math.random() * avatars.length);
+  return avatars[index]?.id || EMPTY_ASSET_ID;
+}
+
+function resolveAvatarSelection(value: string, avatars: WorkbenchAvatar[]) {
+  return value === RANDOM_AVATAR_ID ? pickRandomAvatarId(avatars) : value;
 }
 
 function serializeRow(row: ScriptRow): ScriptRowSnapshot {
@@ -289,7 +307,7 @@ export function DigitalHumanWorkbench() {
 
   const resetPage = useCallback(() => setPage(1), []);
   const voices = assetSnapshot.voices;
-  const voiceProvider = assetSnapshot.voiceProvider === "indextts" ? "indextts" : "skyhuman";
+  const voiceProvider = normalizeVoiceProvider(assetSnapshot.voiceProvider);
   const avatars = assetSnapshot.avatars;
   const voicesLoading = assetSnapshot.voicesLoading;
   const avatarsLoading = assetSnapshot.avatarsLoading;
@@ -369,7 +387,7 @@ export function DigitalHumanWorkbench() {
     });
     setRows((current) =>
       current.map((row) =>
-        row.source === "audio" || row.voice === EMPTY_ASSET_ID || voices.some((voice) => voice.id === row.voice)
+        row.source === "audio" || (row.voice !== EMPTY_ASSET_ID && voices.some((voice) => voice.id === row.voice))
           ? row
           : { ...row, voice: nextVoice },
       ),
@@ -380,12 +398,13 @@ export function DigitalHumanWorkbench() {
     if (avatarsLoading || avatars.length === 0) return;
     const nextAvatar = avatars[0]?.id || EMPTY_ASSET_ID;
     setDefaultAvatar((current) => {
+      if (current === RANDOM_AVATAR_ID) return current;
       if (current && current !== EMPTY_ASSET_ID && avatars.some((avatar) => avatar.id === current)) return current;
       return nextAvatar;
     });
     setRows((current) =>
       current.map((row) =>
-        row.avatar === EMPTY_ASSET_ID || avatars.some((avatar) => avatar.id === row.avatar) ? row : { ...row, avatar: nextAvatar },
+        row.avatar === RANDOM_AVATAR_ID || row.avatar === EMPTY_ASSET_ID || avatars.some((avatar) => avatar.id === row.avatar) ? row : { ...row, avatar: nextAvatar },
       ),
     );
   }, [avatars, avatarsLoading]);
@@ -491,16 +510,37 @@ export function DigitalHumanWorkbench() {
     );
   }, []);
 
+  const handleVoiceProviderChange = useCallback(async (value: string) => {
+    const provider = normalizeVoiceProvider(value);
+    try {
+      const res = await fetch("/api/voices/provider", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "保存默认声音服务失败");
+      setDigitalHumanVoiceProvider(provider);
+      setDefaultVoice(EMPTY_ASSET_ID);
+      setRows((current) => current.map((row) => row.source === "audio" ? row : { ...row, voice: EMPTY_ASSET_ID }));
+      await refreshDigitalHumanAssets("voices");
+      showToast({ type: "success", message: `默认声音服务已切换为 ${provider === "indextts" ? "IndexTTS" : "SkyHuman"}` });
+    } catch (error) {
+      showToast({ type: "error", message: error instanceof Error ? error.message : "切换默认声音服务失败" });
+    }
+  }, []);
+
   const addTaskRow = useCallback(() => {
     setRows((current) => {
       const batchCount = current.filter((row) => row.batchName === selectedBatchName).length;
+      const avatar = defaultAvatar === RANDOM_AVATAR_ID ? pickRandomAvatarId(avatars) : defaultAvatar;
       return [
         ...current,
-        createRow(batchCount + 1, selectedBatchName, { voice: defaultVoice, avatar: defaultAvatar }),
+        createRow(batchCount + 1, selectedBatchName, { voice: defaultVoice, avatar }),
       ];
     });
     resetPage();
-  }, [defaultAvatar, defaultVoice, resetPage, selectedBatchName]);
+  }, [avatars, defaultAvatar, defaultVoice, resetPage, selectedBatchName]);
 
   const chooseAudioForRow = useCallback((rowId: string) => {
     pendingAudioRowIdRef.current = rowId;
@@ -571,10 +611,15 @@ export function DigitalHumanWorkbench() {
   }, []);
 
   const runGenerationRow = useCallback(async (row: ScriptRow, batchIndex: number) => {
+    const resolvedAvatar = resolveAvatarSelection(row.avatar, avatars);
+    if (row.avatar === RANDOM_AVATAR_ID && resolvedAvatar !== EMPTY_ASSET_ID) {
+      updateRow(row.id, { avatar: resolvedAvatar });
+    }
+    const rowForGeneration = { ...row, avatar: resolvedAvatar };
     updateRow(row.id, {
       status: "queued",
       progress: 8,
-      outputPath: buildOutputPath(row, batchIndex),
+      outputPath: buildOutputPath(rowForGeneration, batchIndex),
       previewUrl: undefined,
       audioTaskId: undefined,
       videoTaskId: undefined,
@@ -584,16 +629,16 @@ export function DigitalHumanWorkbench() {
     });
 
     try {
-      if (row.source === "script") {
-        if (!row.voice || row.voice === EMPTY_ASSET_ID) throw new Error("请选择可用音色");
-        if (!row.avatar || row.avatar === EMPTY_ASSET_ID) throw new Error("请选择可用形象");
+      if (rowForGeneration.source === "script") {
+        if (!rowForGeneration.voice || rowForGeneration.voice === EMPTY_ASSET_ID) throw new Error("请选择可用音色");
+        if (!rowForGeneration.avatar || rowForGeneration.avatar === EMPTY_ASSET_ID) throw new Error("请选择可用形象");
         updateRow(row.id, { status: "voice", progress: 18 });
         const formData = new FormData();
         formData.append("source", "script");
-        formData.append("title", `${row.batchName}-${String(batchIndex + 1).padStart(3, "0")}`);
-        formData.append("avatar", row.avatar);
-        formData.append("voice", row.voice);
-        formData.append("script", row.script.trim());
+        formData.append("title", `${rowForGeneration.batchName}-${String(batchIndex + 1).padStart(3, "0")}`);
+        formData.append("avatar", rowForGeneration.avatar);
+        formData.append("voice", rowForGeneration.voice);
+        formData.append("script", rowForGeneration.script.trim());
         formData.append("voiceProvider", voiceProvider);
         const res = await fetch("/api/digital-human/videos", { method: "POST", body: formData });
         const data = await res.json().catch(() => ({}));
@@ -607,8 +652,8 @@ export function DigitalHumanWorkbench() {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            avatar: row.avatar,
-            title: `${row.batchName}-${String(batchIndex + 1).padStart(3, "0")}`,
+            avatar: rowForGeneration.avatar,
+            title: `${rowForGeneration.batchName}-${String(batchIndex + 1).padStart(3, "0")}`,
             audioUrl,
           }),
         });
@@ -617,7 +662,7 @@ export function DigitalHumanWorkbench() {
 
         updateRow(row.id, { videoTaskId: videoData.videoTaskId, progress: 72 });
         const result = await waitForVideo(String(videoData.videoTaskId));
-        const local = await downloadVideoToLocal(row, batchIndex, result.videoUrl);
+        const local = await downloadVideoToLocal(rowForGeneration, batchIndex, result.videoUrl);
         updateRow(row.id, {
           status: "done",
           progress: 100,
@@ -629,21 +674,21 @@ export function DigitalHumanWorkbench() {
         return;
       }
 
-      if (!row.audioName) throw new Error("请先选择音频文件");
-      if (!row.avatar || row.avatar === EMPTY_ASSET_ID) throw new Error("请选择可用形象");
-      if (!row.audioFile && !row.audioPath) {
+      if (!rowForGeneration.audioName) throw new Error("请先选择音频文件");
+      if (!rowForGeneration.avatar || rowForGeneration.avatar === EMPTY_ASSET_ID) throw new Error("请选择可用形象");
+      if (!rowForGeneration.audioFile && !rowForGeneration.audioPath) {
         throw new Error("音频文件路径不存在，请重新选择后再生成。");
       }
       updateRow(row.id, { status: "video", progress: 25 });
 
       const formData = new FormData();
       formData.append("source", "audio");
-      formData.append("title", `${row.batchName}-${String(batchIndex + 1).padStart(3, "0")}`);
-      formData.append("avatar", row.avatar);
-      if (row.audioFile) {
-        formData.append("audio", row.audioFile);
-      } else if (row.audioPath) {
-        formData.append("audioPath", row.audioPath);
+      formData.append("title", `${rowForGeneration.batchName}-${String(batchIndex + 1).padStart(3, "0")}`);
+      formData.append("avatar", rowForGeneration.avatar);
+      if (rowForGeneration.audioFile) {
+        formData.append("audio", rowForGeneration.audioFile);
+      } else if (rowForGeneration.audioPath) {
+        formData.append("audioPath", rowForGeneration.audioPath);
       }
       const res = await fetch("/api/digital-human/videos", { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
@@ -651,7 +696,7 @@ export function DigitalHumanWorkbench() {
 
       updateRow(row.id, { videoTaskId: data.videoTaskId, progress: 70 });
       const result = await waitForVideo(String(data.videoTaskId));
-      const local = await downloadVideoToLocal(row, batchIndex, result.videoUrl);
+      const local = await downloadVideoToLocal(rowForGeneration, batchIndex, result.videoUrl);
       updateRow(row.id, {
         status: "done",
         progress: 100,
@@ -663,11 +708,11 @@ export function DigitalHumanWorkbench() {
     } catch (error) {
       updateRow(row.id, {
         status: "error",
-        progress: Math.max(row.progress, 12),
+        progress: Math.max(rowForGeneration.progress, 12),
         error: error instanceof Error ? error.message : "生成失败",
       });
     }
-  }, [buildOutputPath, downloadVideoToLocal, updateRow, voiceProvider, waitForAudio, waitForVideo]);
+  }, [avatars, buildOutputPath, downloadVideoToLocal, updateRow, voiceProvider, waitForAudio, waitForVideo]);
 
   const runGenerationQueue = useCallback(async (items: ScriptRow[]) => {
     const maxConcurrency = Math.max(1, Math.min(10, Math.floor(concurrency) || DEFAULT_CONCURRENCY));
@@ -734,14 +779,15 @@ export function DigitalHumanWorkbench() {
   const startNewBatch = useCallback(() => {
     const nextSequence = batchSequence + 1;
     const nextName = createBatchName(nextSequence);
+    const avatar = defaultAvatar === RANDOM_AVATAR_ID ? pickRandomAvatarId(avatars) : defaultAvatar;
     setBatchSequence(nextSequence);
     setSelectedBatchName(nextName);
     setRows((current) => [
-      createRow(1, nextName, { voice: defaultVoice, avatar: defaultAvatar }),
+      createRow(1, nextName, { voice: defaultVoice, avatar }),
       ...current,
     ]);
     resetPage();
-  }, [batchSequence, defaultAvatar, defaultVoice, resetPage]);
+  }, [avatars, batchSequence, defaultAvatar, defaultVoice, resetPage]);
 
   const jumpToPage = useCallback(() => {
     const value = Number(pageJump);
@@ -859,7 +905,18 @@ export function DigitalHumanWorkbench() {
       </div>
 
       <div className="grid shrink-0 gap-3 border-b border-border/60 px-6 py-4">
-        <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
+        <div className="grid grid-cols-3 gap-3 max-xl:grid-cols-2 max-lg:grid-cols-1">
+          <Field label="默认声音服务">
+            <Select value={voiceProvider} onValueChange={handleVoiceProviderChange}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="skyhuman">SkyHuman</SelectItem>
+                <SelectItem value="indextts">IndexTTS</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
           <Field label="默认音色">
             <Select value={defaultVoice} onValueChange={setDefaultVoice} disabled={voicesLoading || voices.length === 0}>
               <SelectTrigger className="w-full">
@@ -879,18 +936,23 @@ export function DigitalHumanWorkbench() {
           <Field label="默认形象">
             <Select value={defaultAvatar} onValueChange={setDefaultAvatar} disabled={avatarsLoading || avatars.length === 0}>
               <SelectTrigger className="w-full">
-                <AvatarSelectValue avatar={avatars.find((avatar) => avatar.id === defaultAvatar)} loading={avatarsLoading} />
+                <AvatarSelectValue avatar={avatars.find((avatar) => avatar.id === defaultAvatar)} loading={avatarsLoading} random={defaultAvatar === RANDOM_AVATAR_ID} />
               </SelectTrigger>
               <SelectContent>
                 {avatars.length === 0 ? (
                   <SelectItem value={EMPTY_ASSET_ID} disabled>
                     {avatarsLoading ? "同步形象..." : "暂无可用形象"}
                   </SelectItem>
-                ) : avatars.map((avatar) => (
-                  <SelectItem key={avatar.id} value={avatar.id}>
-                    <AvatarOption avatar={avatar} />
-                  </SelectItem>
-                ))}
+                ) : (
+                  <>
+                    <SelectItem value={RANDOM_AVATAR_ID}>随机形象</SelectItem>
+                    {avatars.map((avatar) => (
+                      <SelectItem key={avatar.id} value={avatar.id}>
+                        <AvatarOption avatar={avatar} />
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
               </SelectContent>
             </Select>
           </Field>
@@ -1026,18 +1088,23 @@ export function DigitalHumanWorkbench() {
                       onValueChange={(value) => updateRow(row.id, { avatar: value })}
                     >
                       <SelectTrigger className="w-full">
-                        <AvatarSelectValue avatar={avatars.find((avatar) => avatar.id === row.avatar)} loading={avatarsLoading} />
+                        <AvatarSelectValue avatar={avatars.find((avatar) => avatar.id === row.avatar)} loading={avatarsLoading} random={row.avatar === RANDOM_AVATAR_ID} />
                       </SelectTrigger>
                       <SelectContent>
                         {avatars.length === 0 ? (
                           <SelectItem value={EMPTY_ASSET_ID} disabled>
                             {avatarsLoading ? "同步形象..." : "暂无可用形象"}
                           </SelectItem>
-                        ) : avatars.map((avatar) => (
-                          <SelectItem key={avatar.id} value={avatar.id}>
-                            <AvatarOption avatar={avatar} />
-                          </SelectItem>
-                        ))}
+                        ) : (
+                          <>
+                            <SelectItem value={RANDOM_AVATAR_ID}>随机形象</SelectItem>
+                            {avatars.map((avatar) => (
+                              <SelectItem key={avatar.id} value={avatar.id}>
+                                <AvatarOption avatar={avatar} />
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1155,7 +1222,7 @@ function AvatarOption({ avatar }: { avatar: WorkbenchAvatar }) {
   );
 }
 
-function AvatarSelectValue({ avatar, loading }: { avatar?: WorkbenchAvatar; loading?: boolean }) {
+function AvatarSelectValue({ avatar, loading, random }: { avatar?: WorkbenchAvatar; loading?: boolean; random?: boolean }) {
   if (loading && !avatar) {
     return (
       <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
@@ -1163,6 +1230,10 @@ function AvatarSelectValue({ avatar, loading }: { avatar?: WorkbenchAvatar; load
         同步形象...
       </span>
     );
+  }
+
+  if (random) {
+    return <span className="min-w-0 truncate">随机形象</span>;
   }
 
   if (!avatar) {

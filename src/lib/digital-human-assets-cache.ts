@@ -43,6 +43,8 @@ let state: AssetCacheState = {
 
 let voicesRequest: Promise<void> | null = null;
 let avatarsRequest: Promise<void> | null = null;
+let voicesRequestSeq = 0;
+let avatarsRequestSeq = 0;
 
 function emit() {
   listeners.forEach((listener) => listener());
@@ -69,20 +71,29 @@ export function subscribeDigitalHumanAssets(listener: Listener) {
   return () => listeners.delete(listener);
 }
 
+export function setDigitalHumanVoiceProvider(provider: string) {
+  voicesRequestSeq += 1;
+  voicesRequest = null;
+  setState({ voiceProvider: provider, voices: [], voicesLoaded: false });
+}
+
 async function loadVoices(force = false) {
-  if (voicesRequest) return voicesRequest;
+  if (voicesRequest && !force) return voicesRequest;
   if (!force && state.voicesLoaded) return;
 
+  const requestSeq = ++voicesRequestSeq;
   setState({ voicesLoading: true });
   voicesRequest = fetch("/api/voices/provider", { cache: "no-store" })
     .then((res) => res.ok ? res.json() : null)
     .then((providerData) => {
       const provider = String(providerData?.provider || "skyhuman");
+      if (requestSeq !== voicesRequestSeq) return null;
       setState({ voiceProvider: provider });
-      return fetch(`/api/voices?provider=${encodeURIComponent(provider)}&kind=all&page=1&size=300`);
+      return fetch(`/api/voices?provider=${encodeURIComponent(provider)}&kind=all&page=1&size=300`, { cache: "no-store" });
     })
-    .then((res) => res.ok ? res.json() : null)
+    .then((res) => res && res.ok ? res.json() : null)
     .then((data) => {
+      if (requestSeq !== voicesRequestSeq) return;
       const rawVoices = Array.isArray(data?.voices) ? data.voices as Record<string, unknown>[] : [];
       const voices = rawVoices
         .map((voice): CachedWorkbenchVoice => ({
@@ -95,9 +106,11 @@ async function loadVoices(force = false) {
       setState({ voices, voicesLoaded: true });
     })
     .catch(() => {
+      if (requestSeq !== voicesRequestSeq) return;
       setState({ voices: [], voicesLoaded: true });
     })
     .finally(() => {
+      if (requestSeq !== voicesRequestSeq) return;
       voicesRequest = null;
       setState({ voicesLoading: false });
     });
@@ -106,13 +119,15 @@ async function loadVoices(force = false) {
 }
 
 async function loadAvatars(force = false) {
-  if (avatarsRequest) return avatarsRequest;
+  if (avatarsRequest && !force) return avatarsRequest;
   if (!force && state.avatarsLoaded) return;
 
+  const requestSeq = ++avatarsRequestSeq;
   setState({ avatarsLoading: true });
-  avatarsRequest = fetch("/api/digital-human/avatars")
+  avatarsRequest = fetch("/api/digital-human/avatars", { cache: "no-store" })
     .then((res) => res.ok ? res.json() : null)
     .then((data) => {
+      if (requestSeq !== avatarsRequestSeq) return;
       const rawAvatars = Array.isArray(data?.avatars) ? data.avatars as Record<string, unknown>[] : [];
       const avatars = rawAvatars
         .map((avatar): CachedWorkbenchAvatar => ({
@@ -125,9 +140,11 @@ async function loadAvatars(force = false) {
       setState({ avatars, avatarsLoaded: true });
     })
     .catch(() => {
+      if (requestSeq !== avatarsRequestSeq) return;
       setState({ avatars: [], avatarsLoaded: true });
     })
     .finally(() => {
+      if (requestSeq !== avatarsRequestSeq) return;
       avatarsRequest = null;
       setState({ avatarsLoading: false });
     });
