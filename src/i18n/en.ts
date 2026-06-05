@@ -1589,6 +1589,25 @@ const en = {
   'buddy.namePlaceholder': 'Give your buddy a name...',
   'buddy.nameHint': 'This will be your buddy\'s name',
   'buddy.reset': 'Reset buddy',
+
+  // ── ShuanQ Auth ─────────────────────────────────────────────
+  'auth.title': 'Account Verification',
+  'auth.initializing': 'Checking verification service...',
+  'auth.ready': 'Sign in to continue.',
+  'auth.appInfoUnavailable': 'Verification service is unavailable.',
+  'auth.loginTab': 'Login',
+  'auth.registerTab': 'Register',
+  'auth.cardTab': 'Card',
+  'auth.account': 'Account',
+  'auth.password': 'Password',
+  'auth.nickname': 'Nickname',
+  'auth.card': 'Activation card',
+  'auth.loginButton': 'Login',
+  'auth.registerButton': 'Register',
+  'auth.cardButton': 'Use Card',
+  'auth.retry': 'Retry',
+  'auth.registerSuccess': 'Registration succeeded. You can now log in.',
+  'auth.cardSuccess': 'Card applied successfully.',
 } as const;
 
 export type TranslationKey = keyof typeof en;

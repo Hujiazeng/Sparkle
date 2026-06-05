@@ -1586,6 +1586,25 @@ const zh: Record<TranslationKey, string> = {
   'buddy.namePlaceholder': '给你的伙伴起个名字...',
   'buddy.nameHint': '这将是你的伙伴的名字',
   'buddy.reset': '重置伙伴',
+
+  // ── ShuanQ Auth ─────────────────────────────────────────────
+  'auth.title': '账号验证',
+  'auth.initializing': '正在检查验证服务...',
+  'auth.ready': '登录后继续使用。',
+  'auth.appInfoUnavailable': '验证服务不可用。',
+  'auth.loginTab': '登录',
+  'auth.registerTab': '注册',
+  'auth.cardTab': '卡密',
+  'auth.account': '账号',
+  'auth.password': '密码',
+  'auth.nickname': '昵称',
+  'auth.card': '激活卡密',
+  'auth.loginButton': '登录',
+  'auth.registerButton': '注册',
+  'auth.cardButton': '使用卡密',
+  'auth.retry': '重试',
+  'auth.registerSuccess': '注册成功，现在可以登录。',
+  'auth.cardSuccess': '卡密使用成功。',
 };
 
 export default zh;

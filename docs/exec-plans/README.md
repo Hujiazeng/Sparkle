@@ -58,10 +58,12 @@
 | active/v0.48-post-release-issues.md | v0.48.0/0.48.1 发版后问题追查（已归档至 issue-tracker.md，保留原始记录） | 已归档 |
 | active/digital-human-skyhuman-config.md | 数字人 SkyHuman API 配置、首次引导业务化、服务商入口收敛 | Phase 0 进行中 |
 | active/skyhuman-voice-management.md | SkyHuman 音色管理页 + 试听 + 创建任务 | Phase 4 进行中 |
+| active/indextts-cloud-provider.md | IndexTTS 云端 Provider 接入：应用级共享 token + 云端 `/api/voice/*` 代理 + 音色默认服务切换 | Phase 1 进行中 |
 ### Completed
 
 | 文件 | 主题 | 完成日期 |
 |------|------|----------|
+| completed/shuanq-auth-typescript-port.md | 栓Q验证完整 TypeScript 迁移（协议、登录、卡密、心跳、前端 Gate） | 2026-06-05 |
 | completed/force-auto-update.md | OSS/CDN 强制自动更新：独立 update-policy.json、fallback API 策略返回、前端不可关闭更新墙 | 2026-05-21 |
 | completed/markdown-artifact-overhaul.md | Markdown 渲染/编辑 × Artifact 网页预览扩展（DiffSummary 卡片 + Sandpack TSX + 长图导出 + 文件树新建 .md + CodeMirror 编辑 + DataTable + 文件 I/O API） | 2026-04-21 |
 | completed/hermes-inspired-runtime-upgrade.md | Hermes 借鉴的 Runtime 能力升级：6 核心模块 + 12 额外交付（并行安全、辅助模型、子目录 hint、session 搜索、Skill nudge UI、AskUserQuestion、压缩通知） | 2026-04-12 |

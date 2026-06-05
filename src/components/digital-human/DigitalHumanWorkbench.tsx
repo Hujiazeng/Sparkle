@@ -289,6 +289,7 @@ export function DigitalHumanWorkbench() {
 
   const resetPage = useCallback(() => setPage(1), []);
   const voices = assetSnapshot.voices;
+  const voiceProvider = assetSnapshot.voiceProvider === "indextts" ? "indextts" : "skyhuman";
   const avatars = assetSnapshot.avatars;
   const voicesLoading = assetSnapshot.voicesLoading;
   const avatarsLoading = assetSnapshot.avatarsLoading;
@@ -593,6 +594,7 @@ export function DigitalHumanWorkbench() {
         formData.append("avatar", row.avatar);
         formData.append("voice", row.voice);
         formData.append("script", row.script.trim());
+        formData.append("voiceProvider", voiceProvider);
         const res = await fetch("/api/digital-human/videos", { method: "POST", body: formData });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.audioTaskId) throw new Error(data.error || "提交音频任务失败");
@@ -665,7 +667,7 @@ export function DigitalHumanWorkbench() {
         error: error instanceof Error ? error.message : "生成失败",
       });
     }
-  }, [buildOutputPath, downloadVideoToLocal, updateRow, waitForAudio, waitForVideo]);
+  }, [buildOutputPath, downloadVideoToLocal, updateRow, voiceProvider, waitForAudio, waitForVideo]);
 
   const runGenerationQueue = useCallback(async (items: ScriptRow[]) => {
     const maxConcurrency = Math.max(1, Math.min(10, Math.floor(concurrency) || DEFAULT_CONCURRENCY));

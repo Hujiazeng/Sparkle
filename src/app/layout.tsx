@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/layout/ThemeProvider";
 import { ThemeFamilyProvider } from "@/components/layout/ThemeFamilyProvider";
 import { I18nProvider } from "@/components/layout/I18nProvider";
 import { AppShell } from "@/components/layout/AppShell";
+import { ShuanQAuthGate } from "@/components/auth/ShuanQAuthGate";
 import { getAllThemeFamilies, getThemeFamilyMetas } from "@/lib/theme/loader";
 import { renderThemeFamilyCSS } from "@/lib/theme/render-css";
 import { getSetting } from "@/lib/db";
@@ -73,7 +74,9 @@ export default function RootLayout({
         <ThemeProvider>
           <ThemeFamilyProvider families={familiesMeta}>
             <I18nProvider>
-              <AppShell>{children}</AppShell>
+              <ShuanQAuthGate>
+                <AppShell>{children}</AppShell>
+              </ShuanQAuthGate>
             </I18nProvider>
           </ThemeFamilyProvider>
         </ThemeProvider>

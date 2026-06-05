@@ -19,6 +19,7 @@ export interface CachedWorkbenchAvatar {
 interface AssetCacheState {
   voices: CachedWorkbenchVoice[];
   avatars: CachedWorkbenchAvatar[];
+  voiceProvider: string;
   voicesLoading: boolean;
   avatarsLoading: boolean;
   voicesLoaded: boolean;
@@ -33,6 +34,7 @@ const listeners = new Set<Listener>();
 let state: AssetCacheState = {
   voices: [],
   avatars: [],
+  voiceProvider: "skyhuman",
   voicesLoading: true,
   avatarsLoading: true,
   voicesLoaded: false,
@@ -72,7 +74,13 @@ async function loadVoices(force = false) {
   if (!force && state.voicesLoaded) return;
 
   setState({ voicesLoading: true });
-  voicesRequest = fetch("/api/voices?kind=all&page=1&size=300")
+  voicesRequest = fetch("/api/voices/provider", { cache: "no-store" })
+    .then((res) => res.ok ? res.json() : null)
+    .then((providerData) => {
+      const provider = String(providerData?.provider || "skyhuman");
+      setState({ voiceProvider: provider });
+      return fetch(`/api/voices?provider=${encodeURIComponent(provider)}&kind=all&page=1&size=300`);
+    })
     .then((res) => res.ok ? res.json() : null)
     .then((data) => {
       const rawVoices = Array.isArray(data?.voices) ? data.voices as Record<string, unknown>[] : [];

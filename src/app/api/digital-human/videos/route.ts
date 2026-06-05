@@ -11,6 +11,9 @@ import {
   uploadBlobToSkyHuman,
   uploadFileToSkyHuman,
 } from '@/lib/skyhuman';
+import { synthesizeIndexTTSCloudAudio } from '@/lib/indextts-cloud';
+import { getDefaultVoiceProvider, normalizeVoiceProvider } from '@/lib/voice-provider';
+import { getCachedTtsResult, putCachedTtsResult } from '@/lib/voice-tts-result-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,6 +38,7 @@ export async function POST(request: NextRequest) {
     const voice = String(formData.get('voice') || '').trim();
     const script = String(formData.get('script') || '').trim();
     const audioPath = String(formData.get('audioPath') || '').trim();
+    const voiceProvider = normalizeVoiceProvider(String(formData.get('voiceProvider') || getDefaultVoiceProvider()));
 
     if (!avatar) {
       return NextResponse.json({ error: '缺少数字人形象。' }, { status: 400 });
@@ -48,8 +52,21 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '文案不能为空。' }, { status: 400 });
       }
 
+      if (voiceProvider === 'indextts') {
+        const audio = await synthesizeIndexTTSCloudAudio({
+          voiceId: voice,
+          text: script,
+          emotion: formData.get('emotion') ? String(formData.get('emotion')) : null,
+          emoAlpha: Number.isFinite(Number(formData.get('emoAlpha'))) ? Number(formData.get('emoAlpha')) : 0.5,
+          speed: Number.isFinite(Number(formData.get('speed'))) ? Number(formData.get('speed')) : 1.0,
+        });
+        if (!audio.audioUrl) throw new Error('IndexTTS 未返回音频 URL');
+        const audioTaskId = putCachedTtsResult({ audioUrl: audio.audioUrl, duration: audio.duration });
+        return NextResponse.json({ source, voiceProvider, audioTaskId, audioUrl: audio.audioUrl });
+      }
+
       const audioTaskId = await createSkyHumanAudioByTTS(token, voice, script, `${title} 音频`);
-      return NextResponse.json({ source, audioTaskId });
+      return NextResponse.json({ source, voiceProvider, audioTaskId });
     }
 
     const audioFile = formData.get('audio');
@@ -77,15 +94,32 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const token = getSkyHumanToken();
-    if (!token) {
-      return NextResponse.json({ error: '请先配置 SkyHuman API Token。' }, { status: 400 });
-    }
-
     const kind = request.nextUrl.searchParams.get('kind') || 'video';
     const taskId = request.nextUrl.searchParams.get('taskId') || '';
     if (!taskId) {
       return NextResponse.json({ error: '缺少 taskId。' }, { status: 400 });
+    }
+
+    if (kind === 'audio') {
+      if (taskId.startsWith('indextts:')) {
+        const result = getCachedTtsResult(taskId);
+        if (!result) {
+          return NextResponse.json({ error: '音频结果已过期，请重新生成。' }, { status: 404 });
+        }
+        return NextResponse.json({
+          kind,
+          taskId,
+          status: 3,
+          audioUrl: result.audioUrl,
+          duration: result.duration,
+          message: result.message || '',
+        });
+      }
+    }
+
+    const token = getSkyHumanToken();
+    if (!token) {
+      return NextResponse.json({ error: '请先配置 SkyHuman API Token。' }, { status: 400 });
     }
 
     if (kind === 'audio') {

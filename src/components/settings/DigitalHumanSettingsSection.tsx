@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CheckCircle, SpinnerGap, WarningCircle } from "@/components/ui/icon";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsCard } from "@/components/patterns/SettingsCard";
 import { StatusBanner } from "@/components/patterns/StatusBanner";
 import { showToast } from "@/hooks/useToast";
@@ -16,6 +17,7 @@ export function DigitalHumanSettingsSection() {
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
+  const [voiceProvider, setVoiceProvider] = useState<"skyhuman" | "indextts">("skyhuman");
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -25,6 +27,9 @@ export function DigitalHumanSettingsSection() {
       const data = await res.json();
       setToken(data.settings?.skyhuman_api_token || "");
       setConfigured(!!data.settings?.configured);
+      const providerRes = await fetch("/api/voices/provider", { cache: "no-store" });
+      const providerData = await providerRes.json().catch(() => ({}));
+      setVoiceProvider(providerData.provider === "indextts" ? "indextts" : "skyhuman");
     } catch (error) {
       setStatus({ type: "error", message: error instanceof Error ? error.message : "读取数字人配置失败" });
     } finally {
@@ -57,6 +62,25 @@ export function DigitalHumanSettingsSection() {
       setStatus({ type: "error", message: error instanceof Error ? error.message : "保存数字人配置失败" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleVoiceProviderChange = async (value: string) => {
+    const provider = value === "indextts" ? "indextts" : "skyhuman";
+    setVoiceProvider(provider);
+    setStatus(null);
+    try {
+      const res = await fetch("/api/voices/provider", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "保存默认语音服务失败");
+      setStatus({ type: "success", message: `默认语音服务已切换为 ${provider === "indextts" ? "IndexTTS" : "SkyHuman"}。` });
+      window.dispatchEvent(new Event("digital-human-settings-changed"));
+    } catch (error) {
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "保存默认语音服务失败" });
     }
   };
 
@@ -134,6 +158,34 @@ export function DigitalHumanSettingsSection() {
                 保存配置
               </Button>
             </div>
+          </div>
+        )}
+      </SettingsCard>
+
+      <SettingsCard
+        title="默认语音服务"
+        description="用于音色管理、试听和数字人文案配音。"
+      >
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <SpinnerGap size={16} className="animate-spin" />
+            正在读取配置...
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            <Label htmlFor="voice-provider">语音服务</Label>
+            <Select value={voiceProvider} onValueChange={handleVoiceProviderChange}>
+              <SelectTrigger id="voice-provider">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="skyhuman">SkyHuman</SelectItem>
+                <SelectItem value="indextts">IndexTTS</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              切换后会影响音色管理和后续文案配音任务。
+            </p>
           </div>
         )}
       </SettingsCard>

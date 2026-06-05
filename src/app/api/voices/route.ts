@@ -6,11 +6,19 @@ import {
   listSkyHumanVoices,
   uploadFileToSkyHuman,
 } from '@/lib/skyhuman';
+import {
+  isIndexTTSCloudConfigured,
+  listIndexTTSCloudVoices,
+  uploadIndexTTSCloudVoice,
+  type IndexTTSCloudVoice,
+} from '@/lib/indextts-cloud';
+import { getDefaultVoiceProvider, normalizeVoiceProvider } from '@/lib/voice-provider';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type VoiceRecord = Awaited<ReturnType<typeof listSkyHumanVoices>>[number];
+type Provider = ReturnType<typeof normalizeVoiceProvider>;
 
 function mapVoice(voice: VoiceRecord, kind: number) {
   return {
@@ -29,11 +37,42 @@ function mapVoice(voice: VoiceRecord, kind: number) {
   };
 }
 
+function getProvider(request: NextRequest): Provider {
+  return normalizeVoiceProvider(request.nextUrl.searchParams.get('provider') || getDefaultVoiceProvider());
+}
+
+function mapIndexTTSVoice(voice: IndexTTSCloudVoice) {
+  return {
+    id: String(voice.id ?? crypto.randomUUID()),
+    voice: String(voice.id ?? ''),
+    title: String(voice.name || '未命名音色'),
+    type: 'IndexTTS',
+    rate: '1.0',
+    volume: '1.0',
+    pitch: '1.0',
+    demoUrl: String(voice.audio_url || voice.audioUrl || ''),
+    language: '',
+    kind: 1,
+    status: 'ready',
+    createdAt: String(voice.created_at || voice.createdAt || ''),
+    provider: 'indextts',
+  };
+}
+
 export async function GET(request: NextRequest) {
   try {
+    const provider = getProvider(request);
+    if (provider === 'indextts') {
+      if (!isIndexTTSCloudConfigured()) {
+        return NextResponse.json({ configured: false, provider, voices: [] });
+      }
+      const voices = await listIndexTTSCloudVoices();
+      return NextResponse.json({ configured: true, provider, voices: voices.map(mapIndexTTSVoice) });
+    }
+
     const token = getSkyHumanToken();
     if (!token) {
-      return NextResponse.json({ configured: false, voices: [] });
+      return NextResponse.json({ configured: false, provider, voices: [] });
     }
 
     const kindParam = request.nextUrl.searchParams.get('kind') || 'all';
@@ -41,11 +80,11 @@ export async function GET(request: NextRequest) {
     const size = Math.min(300, Math.max(1, Number(request.nextUrl.searchParams.get('size') || '120') || 120));
     if (kindParam === '2') {
       const voices = await listSkyHumanVoices(token, 2, page, size);
-      return NextResponse.json({ configured: true, voices: voices.map((voice) => mapVoice(voice, 2)) });
+      return NextResponse.json({ configured: true, provider, voices: voices.map((voice) => mapVoice(voice, 2)) });
     }
     if (kindParam === '1') {
       const voices = await listSkyHumanVoices(token, 1, page, size);
-      return NextResponse.json({ configured: true, voices: voices.map((voice) => mapVoice(voice, 1)) });
+      return NextResponse.json({ configured: true, provider, voices: voices.map((voice) => mapVoice(voice, 1)) });
     }
 
     const [mine, publicVoices] = await Promise.all([
@@ -54,6 +93,7 @@ export async function GET(request: NextRequest) {
     ]);
     return NextResponse.json({
       configured: true,
+      provider,
       voices: [
         ...mine.map((voice) => mapVoice(voice, 1)),
         ...publicVoices.map((voice) => mapVoice(voice, 2)),
@@ -67,25 +107,32 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const provider = normalizeVoiceProvider(request.nextUrl.searchParams.get('provider') || getDefaultVoiceProvider());
+    const formData = await request.formData();
+    const title = String(formData.get('title') || '未命名音色').trim();
+    const file = formData.get('audio');
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: '请上传参考音频。' }, { status: 400 });
+    }
+
+    if (provider === 'indextts') {
+      const voice = await uploadIndexTTSCloudVoice(file, title);
+      return NextResponse.json({ provider, voice: mapIndexTTSVoice(voice) });
+    }
+
     const token = getSkyHumanToken();
     if (!token) {
       return NextResponse.json({ error: '请先配置 SkyHuman API Token。' }, { status: 400 });
     }
 
-    const formData = await request.formData();
-    const title = String(formData.get('title') || '未命名音色').trim();
     const language = String(formData.get('language') || '').trim();
-    const file = formData.get('audio');
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: '请上传参考音频。' }, { status: 400 });
-    }
 
     const extension = file.name.split('.').pop()?.toLowerCase() || 'wav';
     const uploadInfo = await createSkyHumanUploadUrl(token, extension);
     await uploadFileToSkyHuman(uploadInfo, file);
     const taskId = await createSkyHumanVoiceByAudio(token, title, uploadInfo.file_id, language || undefined);
 
-    return NextResponse.json({ taskId });
+    return NextResponse.json({ provider, taskId });
   } catch (error) {
     const message = error instanceof Error ? error.message : '创建音色失败';
     return NextResponse.json({ error: message }, { status: 500 });

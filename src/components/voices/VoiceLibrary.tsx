@@ -31,6 +31,7 @@ import { refreshDigitalHumanAssets } from "@/lib/digital-human-assets-cache";
 type VoiceStatus = "ready" | "training" | "failed";
 type KindFilter = "mine" | "public" | "all";
 type SortOrder = "newest" | "oldest";
+type VoiceProvider = "skyhuman" | "indextts";
 
 interface VoiceItem {
   id: string;
@@ -46,6 +47,7 @@ interface VoiceItem {
   status: VoiceStatus;
   createdAt: string;
   taskId?: string;
+  provider?: VoiceProvider;
 }
 
 const PAGE_SIZE = 24;
@@ -88,6 +90,7 @@ function normalizeVoice(raw: Record<string, unknown>): VoiceItem {
     kind: Number(raw.kind ?? 1) === 2 ? 2 : 1,
     status: normalizeStatus(raw.status),
     createdAt: String(raw.createdAt ?? raw.created_at ?? ""),
+    provider: raw.provider === "indextts" ? "indextts" : "skyhuman",
   };
 }
 
@@ -130,13 +133,15 @@ export function VoiceLibrary() {
   const [ttsText, setTtsText] = useState("你好，这是一段试听文本，用来检查音色、语速和语调。");
   const [ttsLoading, setTtsLoading] = useState(false);
   const [savingVoice, setSavingVoice] = useState(false);
+  const [provider, setProvider] = useState<VoiceProvider>("skyhuman");
+  const [providerLoaded, setProviderLoaded] = useState(false);
 
-  const fetchVoices = useCallback(async (filter = kindFilter) => {
+  const fetchVoices = useCallback(async (filter: KindFilter, activeProvider: VoiceProvider) => {
     setLoading(true);
     setLoadError("");
     try {
       const kind = filter === "public" ? 2 : 1;
-      const res = await fetch(`/api/voices?kind=${kind}&page=1&size=300`);
+      const res = await fetch(`/api/voices?provider=${encodeURIComponent(activeProvider)}&kind=${kind}&page=1&size=300`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error || "获取音色列表失败");
@@ -148,19 +153,53 @@ export function VoiceLibrary() {
     } finally {
       setLoading(false);
     }
-  }, [kindFilter]);
+  }, []);
 
   useEffect(() => {
-    fetchVoices();
-  }, [fetchVoices]);
+    fetch("/api/voices/provider", { cache: "no-store" })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        const nextProvider = data?.provider === "indextts" ? "indextts" : "skyhuman";
+        setProvider(nextProvider);
+        setProviderLoaded(true);
+        return fetchVoices(kindFilter, nextProvider);
+      })
+      .catch(() => {
+        setProviderLoaded(true);
+        fetchVoices(kindFilter, "skyhuman");
+      });
+  }, [fetchVoices, kindFilter]);
+
+  const handleProviderChange = useCallback(async (nextProvider: VoiceProvider) => {
+    if (nextProvider === provider) return;
+    setProvider(nextProvider);
+    setSelectedVoice(null);
+    setDetailOpen(false);
+    setKindFilter("mine");
+    try {
+      const res = await fetch("/api/voices/provider", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: nextProvider }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "保存默认语音服务失败");
+      await fetchVoices("mine", nextProvider);
+      await refreshDigitalHumanAssets("voices");
+      showToast({ type: "success", message: `默认语音服务已切换为 ${nextProvider === "indextts" ? "IndexTTS" : "SkyHuman"}` });
+    } catch (error) {
+      showToast({ type: "error", message: error instanceof Error ? error.message : "切换语音服务失败" });
+    }
+  }, [fetchVoices, provider]);
 
   useEffect(() => {
-    const handler = () => fetchVoices();
+    const handler = () => fetchVoices(kindFilter, provider);
     window.addEventListener("digital-human-settings-changed", handler);
     return () => window.removeEventListener("digital-human-settings-changed", handler);
-  }, [fetchVoices]);
+  }, [fetchVoices, kindFilter, provider]);
 
   useEffect(() => {
+    if (provider !== "skyhuman") return;
     const pending = voices.filter((voice) => voice.status === "training" && voice.taskId);
     if (pending.length === 0) return;
 
@@ -175,7 +214,7 @@ export function VoiceLibrary() {
           if (nextStatus === "training") return;
 
           if (nextStatus === "ready") {
-            await fetchVoices();
+            await fetchVoices(kindFilter, provider);
             await refreshDigitalHumanAssets("voices");
             showToast({ type: "success", message: "音色创建完成" });
             return;
@@ -199,7 +238,7 @@ export function VoiceLibrary() {
     }, 6000);
 
     return () => window.clearInterval(timer);
-  }, [fetchVoices, voices]);
+  }, [fetchVoices, provider, voices]);
 
   const filteredVoices = useMemo(() => {
     return voices.filter((voice) => {
@@ -260,44 +299,68 @@ export function VoiceLibrary() {
       const formData = new FormData();
       formData.append("title", newTitle.trim() || "未命名音色");
       formData.append("audio", selectedAudioFile);
-      const res = await fetch("/api/voices", {
+      const res = await fetch(`/api/voices?provider=${provider}`, {
         method: "POST",
         body: formData,
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.taskId) {
+      if (!res.ok || (!data.taskId && !data.voice)) {
         throw new Error(data.error || "提交音色创建任务失败");
       }
 
-      const item = createPendingVoice(newTitle, data.taskId);
-      setVoices((current) => [item, ...current]);
-      setSelectedVoice(item);
+      if (data.voice) {
+        const item = normalizeVoice(data.voice);
+        setVoices((current) => [item, ...current]);
+        setSelectedVoice(item);
+        await refreshDigitalHumanAssets("voices");
+        showToast({ type: "success", message: "音色创建完成" });
+      } else {
+        const item = createPendingVoice(newTitle, data.taskId);
+        setVoices((current) => [item, ...current]);
+        setSelectedVoice(item);
+        showToast({ type: "success", message: "音色创建任务已提交" });
+      }
       setCreateOpen(false);
       setDetailOpen(true);
       resetCreateForm();
-      showToast({ type: "success", message: "音色创建任务已提交" });
     } catch (error) {
       showToast({ type: "error", message: error instanceof Error ? error.message : "提交音色创建任务失败" });
     } finally {
       setCreating(false);
     }
-  }, [newTitle, resetCreateForm, selectedAudioFile]);
+  }, [newTitle, provider, resetCreateForm, selectedAudioFile]);
 
   const handleSelect = useCallback((voice: VoiceItem) => {
     setSelectedVoice(voice);
     setDetailOpen(true);
   }, []);
 
-  const handleDeleteLocal = useCallback((voice: VoiceItem) => {
+  const handleDeleteLocal = useCallback(async (voice: VoiceItem) => {
+    if (provider === "indextts") {
+      try {
+        const res = await fetch(`/api/voices/delete?provider=indextts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ voiceId: voice.voice || voice.id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "删除音色失败");
+        await refreshDigitalHumanAssets("voices");
+        showToast({ type: "success", message: "音色已删除" });
+      } catch (error) {
+        showToast({ type: "error", message: error instanceof Error ? error.message : "删除音色失败" });
+        return;
+      }
+    }
     setVoices((current) => current.filter((item) => item.id !== voice.id));
     setDetailOpen(false);
     setSelectedVoice(null);
-  }, []);
+  }, [provider]);
 
   const handleSync = useCallback(async () => {
-    await fetchVoices();
+    await fetchVoices(kindFilter, provider);
     await refreshDigitalHumanAssets("voices");
-  }, [fetchVoices]);
+  }, [fetchVoices, kindFilter, provider]);
 
   const handleGenerateTtsPreview = useCallback(async () => {
     if (!selectedVoice || !selectedVoice.voice) return;
@@ -308,7 +371,7 @@ export function VoiceLibrary() {
 
     setTtsLoading(true);
     try {
-      const res = await fetch("/api/voices/tts", {
+      const res = await fetch(`/api/voices/tts?provider=${provider}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ voice: selectedVoice.voice, text: ttsText.trim(), title: `${selectedVoice.title} 试听` }),
@@ -320,7 +383,7 @@ export function VoiceLibrary() {
 
       const start = Date.now();
       while (Date.now() - start < 180000) {
-        const taskRes = await fetch(`/api/voices/tts?taskId=${encodeURIComponent(data.taskId)}`);
+        const taskRes = await fetch(`/api/voices/tts?provider=${provider}&taskId=${encodeURIComponent(data.taskId)}`);
         const taskData = await taskRes.json().catch(() => ({}));
         if (!taskRes.ok) throw new Error(taskData.error || "查询试听任务失败");
         if (taskData.status === 3 && taskData.audioUrl) {
@@ -340,10 +403,10 @@ export function VoiceLibrary() {
     } finally {
       setTtsLoading(false);
     }
-  }, [selectedVoice, ttsText]);
+  }, [provider, selectedVoice, ttsText]);
 
   const handleSaveVoice = useCallback(async () => {
-    if (!selectedVoice || !selectedVoice.voice) return;
+    if (!selectedVoice || !selectedVoice.voice || provider === "indextts") return;
     setSavingVoice(true);
     try {
       const res = await fetch("/api/voices/edit", {
@@ -366,7 +429,7 @@ export function VoiceLibrary() {
     } finally {
       setSavingVoice(false);
     }
-  }, [selectedVoice]);
+  }, [provider, selectedVoice]);
 
   const clearFilters = useCallback(() => {
     setKindFilter("mine");
@@ -385,6 +448,7 @@ export function VoiceLibrary() {
   }, [currentPage, pageJump, totalPages]);
 
   const hasActiveFilters = kindFilter !== "mine" || sort !== "newest";
+  const providerLabel = provider === "indextts" ? "IndexTTS" : "SkyHuman";
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -402,7 +466,7 @@ export function VoiceLibrary() {
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-xl font-semibold">音色管理</h1>
-            <p className="mt-1 text-sm text-muted-foreground">管理可复用的声音资产，支持编辑、克隆和详情试听。</p>
+            <p className="mt-1 text-sm text-muted-foreground">管理可复用的声音资产，当前默认语音服务：{providerLabel}。</p>
           </div>
           <Button size="sm" className="gap-1" onClick={() => setCreateOpen(true)}>
             <Plus size={14} />
@@ -414,11 +478,18 @@ export function VoiceLibrary() {
       <div className="grid shrink-0 gap-4 border-b border-border/60 px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
+            <Button variant={provider === "skyhuman" ? "secondary" : "ghost"} size="sm" onClick={() => handleProviderChange("skyhuman")} disabled={!providerLoaded}>
+              SkyHuman
+            </Button>
+            <Button variant={provider === "indextts" ? "secondary" : "ghost"} size="sm" onClick={() => handleProviderChange("indextts")} disabled={!providerLoaded}>
+              IndexTTS
+            </Button>
+            <Separator orientation="vertical" className="h-6" />
             <Button variant={kindFilter === "mine" ? "secondary" : "ghost"} size="sm" onClick={() => setKindFilter("mine")}>
               <SlidersHorizontal size={14} />
               我的音色
             </Button>
-            <Button variant={kindFilter === "public" ? "secondary" : "ghost"} size="sm" onClick={() => setKindFilter("public")}>
+            <Button variant={kindFilter === "public" ? "secondary" : "ghost"} size="sm" onClick={() => setKindFilter("public")} disabled={provider === "indextts"}>
               <SlidersHorizontal size={14} />
               公共音色
             </Button>
@@ -447,8 +518,8 @@ export function VoiceLibrary() {
         ) : !configured ? (
           <CenteredState
             icon={Gear}
-            label="请先配置数字人 API Token"
-            hint="音色与数字人共用同一套 SkyHuman 凭证。"
+            label={provider === "indextts" ? "请先配置 IndexTTS 云端服务" : "请先配置数字人 API Token"}
+            hint={provider === "indextts" ? "当前语音服务暂不可用，请联系管理员处理。" : "音色与数字人共用同一套 SkyHuman 凭证。"}
             action={<Button size="sm" onClick={() => { window.location.href = "/settings#digital-human"; }}>前往设置</Button>}
           />
         ) : loadError ? (
@@ -461,7 +532,7 @@ export function VoiceLibrary() {
           <CenteredState
             icon={Sparkle}
             label="暂无音色"
-            hint="创建参考音频后会出现在这里，也可以切换到公共音色查看。"
+            hint={provider === "indextts" ? "上传参考音频后会出现在这里。" : "创建参考音频后会出现在这里，也可以切换到公共音色查看。"}
           />
         ) : (
           <>
@@ -578,14 +649,14 @@ export function VoiceLibrary() {
                       <Play size={14} />
                       生成试听
                     </Button>
-                    <Button variant="outline" onClick={handleSaveVoice} disabled={savingVoice || !selectedVoice.voice}>
+                    <Button variant="outline" onClick={handleSaveVoice} disabled={savingVoice || !selectedVoice.voice || provider === "indextts"}>
                       {savingVoice && <SpinnerGap size={14} className="animate-spin" />}
                       <Gear size={14} />
                       保存参数
                     </Button>
                     <Button variant="ghost" onClick={() => handleDeleteLocal(selectedVoice)}>
                       <X size={14} />
-                      移除本地项
+                      {provider === "indextts" ? "删除音色" : "移除本地项"}
                     </Button>
                   </div>
                 </div>
